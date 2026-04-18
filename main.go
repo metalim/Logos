@@ -34,7 +34,19 @@ const (
 	testNewsInterval = 5 * time.Second
 	// feedScrollPx moves each frame by a fraction of (targetPx - feedScrollPx); lambda scales with dt (~seconds^-1).
 	feedScrollLambda = 14.0
+	// Manual wheel: content pixels per unit of WidgetScrolledEventArgs.Y (~one text line at 14pt).
+	feedWheelContentPixelsPerUnit = 18.0
 )
+
+func clampUnitInterval(x float64) float64 {
+	if x < 0 {
+		return 0
+	}
+	if x > 1 {
+		return 1
+	}
+	return x
+}
 
 // Game is the root game state. Extend this struct with your systems and assets.
 type Game struct {
@@ -76,26 +88,16 @@ func wireFeedScrollWheel(g *Game) {
 		if !ok {
 			return
 		}
-		scroll := g.feedScroll
-		text := g.newsText
-		viewH := float64(scroll.ViewRect().Dy())
-		_, ch := text.PreferredSize()
-		extra := float64(ch) - viewH
-		if extra <= 0 {
+		extra, _, haveSlack := g.feedScrollSlack()
+		if !haveSlack || extra <= 0 {
 			return
 		}
-		// a.Y from ebiten; delta in normalized scroll = (pixels to move) / extra.
-		// One unit of a.Y with |a.Y|==1 scrolls by one viewport height of content.
-		delta := a.Y * viewH / extra
-		scroll.ScrollTop -= delta
-		if scroll.ScrollTop < 0 {
-			scroll.ScrollTop = 0
+		contentPx := a.Y * feedWheelContentPixelsPerUnit
+		if contentPx != 0 && math.Abs(contentPx) < 1 {
+			contentPx = math.Copysign(1, contentPx)
 		}
-		if scroll.ScrollTop > 1 {
-			scroll.ScrollTop = 1
-		}
-		g.feedScrollTarget = scroll.ScrollTop
-		g.feedScrollPx = scroll.ScrollTop * extra
+		delta := contentPx / extra
+		g.feedScrollTarget = clampUnitInterval(g.feedScrollTarget - delta)
 	})
 }
 
@@ -246,25 +248,34 @@ func (g *Game) applyVerticalBands(outsideW, outsideH int) {
 
 func (g *Game) requestFeedScrollBottom() {
 	g.feedScrollTarget = 1
-	if g.feedScroll == nil || g.newsText == nil {
+	extra, _, ok := g.feedScrollSlack()
+	if !ok || extra <= 0 {
 		return
 	}
-	_, ch := g.newsText.PreferredSize()
-	extra := float64(ch) - float64(g.feedScroll.ViewRect().Dy())
-	if extra > 0 && g.feedScrollPx < 0 {
+	if g.feedScrollPx < 0 {
 		g.feedScrollPx = g.feedScroll.ScrollTop * extra
 	}
 }
 
-// smoothFeedScroll moves feedScrollPx toward feedScrollTarget*extra by a fraction of the remaining gap each frame.
-func (g *Game) smoothFeedScroll() {
+// feedScrollSlack is content height minus viewport height (pixels scrollable), or ok false if widgets missing.
+func (g *Game) feedScrollSlack() (extra, viewH float64, ok bool) {
 	if g.feedScroll == nil || g.newsText == nil {
-		return
+		return 0, 0, false
 	}
 	_, ch := g.newsText.PreferredSize()
-	extra := float64(ch) - float64(g.feedScroll.ViewRect().Dy())
-	if extra <= 0 {
-		g.feedScroll.ScrollTop = 0
+	viewH = float64(g.feedScroll.ViewRect().Dy())
+	extra = float64(ch) - viewH
+	return extra, viewH, true
+}
+
+// stepSmoothFeedScroll moves feedScrollPx toward feedScrollTarget*extra and writes ScrollTop.
+// Used every frame after ui.Update for both auto “scroll to bottom” and manual wheel (target-only) input.
+func (g *Game) stepSmoothFeedScroll() {
+	extra, _, ok := g.feedScrollSlack()
+	if !ok || extra <= 0 {
+		if g.feedScroll != nil {
+			g.feedScroll.ScrollTop = 0
+		}
 		g.feedScrollPx = 0
 		return
 	}
@@ -324,7 +335,7 @@ func (g *Game) Update() error {
 		g.feedScrollNeedBottom = false
 		g.requestFeedScrollBottom()
 	}
-	g.smoothFeedScroll()
+	g.stepSmoothFeedScroll()
 	return nil
 }
 

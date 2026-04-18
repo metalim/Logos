@@ -36,7 +36,7 @@ Percents are integer fractions of the **outside** height passed into `applyVerti
 
 - **Content:** `widget.Text` inside `widget.ScrollContainer` (`StretchContentWidth`).
 - **Initial text:** long placeholder block (`sampleNews` repeated) plus optional test lines from `pushTestNews`.
-- **Scroll wheel:** ebitenui does not hook the wheel on `ScrollContainer` by default; the game registers `ScrolledEvent` on the scroll widget and adjusts `ScrollTop` manually.
+- **Scroll wheel:** ebitenui does not hook the wheel on `ScrollContainer` by default; the game registers `ScrolledEvent` and updates **`feedScrollTarget`** only. **`ScrollTop`** is written from smoothed state in **`stepSmoothFeedScroll`** (same path as auto–scroll-to-bottom).
 
 ### Scroll math
 
@@ -44,40 +44,42 @@ Percents are integer fractions of the **outside** height passed into `applyVerti
 - `viewH` = `feedScroll.ViewRect().Dy()`.
 - `extra = contentH - viewH` = scrollable slack in **pixels** (≤ 0 means no vertical scroll).
 
-**Normalized position:** `ScrollTop` ∈ [0, 1] (ebitenui convention: 0 top, 1 bottom).
+**`feedScrollSlack()`** returns `(extra, viewH, ok)` from the current `newsText` + `feedScroll` so wheel and smoothing share one measurement.
 
-**Wheel delta:** for event argument `a.Y` (Ebiten wheel step),
+**Normalized position:** `ScrollTop` ∈ [0, 1] (ebitenui: 0 top, 1 bottom). The game tracks **`feedScrollPx`** in **pixels** along the slack; after smoothing, `ScrollTop = feedScrollPx / extra` (clamped).
 
-`delta = a.Y * viewH / extra` added to normalized scroll (`ScrollTop -= delta`, then clamped). One unit `|a.Y| == 1` moves by one viewport height of *content slack*.
+**Wheel (manual):** for `WidgetScrolledEventArgs` vertical `a.Y`:
+
+1. `contentPx = a.Y * feedWheelContentPixelsPerUnit` (default **18** — about one line at 14pt; tunable in `main.go`).
+2. If `contentPx != 0` and `|contentPx| < 1`, use **±1** content pixel (avoids a dead zone on tiny trackpad deltas).
+3. Normalized step `delta = contentPx / extra`; `feedScrollTarget` is clamped to [0, 1] after subtracting `delta`.
+
+The wheel does **not** jump by a full viewport per notch (unlike `a.Y * viewH / extra`).
 
 ### Smoothed scroll state (game-owned)
 
-The game keeps scroll goals in sync with the widget:
-
 | Field | Meaning |
 |-------|---------|
-| `feedScrollTarget` | Normalized goal [0, 1]; bottom =1. |
-| `feedScrollPx` | Smoothed offset in pixels along slack; `ScrollTop = feedScrollPx / extra` after update. |
-| `feedScrollLastSmooth` | Wall time for computing `dt` between `smoothFeedScroll` calls. |
+| `feedScrollTarget` | Normalized goal [0, 1]; bottom = 1. |
+| `feedScrollPx` | Smoothed offset in pixels along slack; drives `ScrollTop` after `stepSmoothFeedScroll`. |
+| `feedScrollLastSmooth` | Wall time for `dt` between `stepSmoothFeedScroll` calls. |
 | `feedScrollNeedBottom` | Layout or content changed; bottom request must run **after** `ui.Update`. |
 
-**Why defer `requestFeedScrollBottom`:** `Layout` can run inside `ui.Update`. Calling `newsText.PreferredSize()` from `requestFeedScrollBottom` during `Layout` has triggered nil derefs inside ebitenui `Text.measure`. Flow: set `feedScrollNeedBottom` from `applyVerticalBands` / `pushTestNews`; after `g.ui.Update()`, clear the flag and call `requestFeedScrollBottom()`.
+**Why defer `requestFeedScrollBottom`:** `Layout` can run inside `ui.Update`. Calling `newsText.PreferredSize()` during `Layout` has triggered nil derefs in ebitenui `Text.measure`. Flow: set `feedScrollNeedBottom` from `applyVerticalBands` / `pushTestNews`; after `g.ui.Update()`, clear the flag and call `requestFeedScrollBottom()`.
 
-**`requestFeedScrollBottom`:** sets `feedScrollTarget = 1`. If `feedScrollPx` is still uninitialized (`< 0`) and `extra > 0`, initializes `feedScrollPx` from current `ScrollTop * extra`.
+**`requestFeedScrollBottom`:** sets `feedScrollTarget = 1`. If `feedScrollPx < 0` (uninitialized) and `extra > 0`, sets `feedScrollPx = ScrollTop * extra`.
 
-**`smoothFeedScroll` (each frame after UI update):**
+**`stepSmoothFeedScroll` (every frame after `ui.Update`):**
 
-1. Recompute `extra`; if `extra <= 0`, set `ScrollTop = 0`, `feedScrollPx = 0`, return.
+1. Recompute `extra` via `feedScrollSlack()`; if `extra <= 0`, set `ScrollTop = 0`, `feedScrollPx = 0`, return.
 2. `targetPx = feedScrollTarget * extra`.
 3. Sync/clamp `feedScrollPx` if uninitialized or past end.
-4. Let `dt = time.Since(feedScrollLastSmooth)` (seconds), update `feedScrollLastSmooth`, clamp `dt` to `(0, 0.2]` (use `1/60` if invalid or after a long gap).
-5. `k = 1 - exp(-feedScrollLambda * dt)` with `feedScrollLambda = 14` (tunable).
-6. `diff = targetPx - feedScrollPx`. If `|diff| < 0.25` px, snap to `targetPx`; else `feedScrollPx += diff * k`.
-7. Write `ScrollTop = feedScrollPx / extra` and clamp widget + `feedScrollPx`.
+4. `dt = time.Since(feedScrollLastSmooth)`, update `feedScrollLastSmooth`, clamp `dt` to `(0, 0.2]` (else use `1/60` after a stall).
+5. `k = 1 - exp(-feedScrollLambda * dt)` with `feedScrollLambda = 14`.
+6. `diff = targetPx - feedScrollPx`. If `|diff| < 0.25` px, snap; else `feedScrollPx += diff * k`.
+7. `ScrollTop = feedScrollPx / extra` and clamp widget + `feedScrollPx`.
 
-This is **proportional easing** (smaller steps near the target), not fixed-duration linear motion.
-
-**Manual wheel:** updates `ScrollTop`, then sets `feedScrollTarget` and `feedScrollPx` to match so smoothing does not fight the user.
+**Proportional easing** toward `feedScrollTarget * extra`: same step runs for **new content (scroll to bottom)** and **manual wheel** (target moves; `feedScrollPx` follows).
 
 ## Test harness
 

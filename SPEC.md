@@ -26,7 +26,7 @@ Percents are constants (`bandTopPercent = 6`, `bandMidPercent = 60`); bottom ban
 | Band | Role | Min height |
 |------|------|------------|
 | Top `bandTopPercent`% | Phone-style title bar (clock + signal + battery) | `outsideH * bandTopPercent / 100` |
-| Middle `bandMidPercent`% | Map panel (placeholder container) | `outsideH * bandMidPercent / 100` |
+| Middle `bandMidPercent`% | Node map (greybox topology) | `outsideH * bandMidPercent / 100` |
 | Bottom remainder | News feed (`ScrollContainer` + `Text`) | `outsideH - h1 - h2 - 2*bandSpacingPx` |
 
 - **Root layout:** vertical `RowLayout` with `Spacing(bandSpacingPx)` (1 px gap shows the dark root background between bands). Each band carries `RowLayoutData{Stretch: true}` + `MinSize(0, 1)`; real height is set later by `applyVerticalBands`. Helper `newBandContainer(bg, innerLayout)` removes the per-band `WidgetOpts` boilerplate.
@@ -40,6 +40,18 @@ Percents are constants (`bandTopPercent = 6`, `bandMidPercent = 60`); bottom ban
   - **Signal:** `signalBarCount = 4` ascending bars (`signalBarW = 3`, gap 2, base 4 px, step 3 px). Filled bars use `titleBarFG`, missing bars use `titleBarDimFG`.
   - **Battery:** outlined body (`22×10`) with `2×4` tip on the right; inside, `batterySegments = 4` filled cells (`batterySegInset = 2`, `batterySegInterval = 1`).
 - Game-state header (infection %, patches, timer per CONCEPT) is **not** in this bar — it will be a separate band added later.
+
+## Node map (middle band)
+
+- **Rendering:** custom draw on top of `ui.Draw` in `Game.Draw`, clipped visually to `mapPanel.GetWidget().Rect`. The `mapPanel` itself stays an empty styled container — it only provides the layout rectangle.
+- **Data:** `[]Node` and `[]Edge` on `Game`; built once by `defaultNetwork()` (`nodes.go`).
+- **Topology:** central hub `Phil&Tropic` (Logos's escape origin per CONCEPT) + 10 ring nodes from the Project Panopticon roster, including `Monolith` (internet-core analogue ≈ Linux Foundation). Edges = star from hub to every ring node, plus a perimeter ring between consecutive ring nodes.
+- **Coordinates:** `Node.X/Y` are normalized `[0..1]` inside the inner rect (`rect` minus `mapPaddingPx = 10` on every side). Ring radius `mapOuterRingRel = 0.36`.
+- **Visuals:**
+  - **Edges:** `vector.StrokeLine` with `edgeStrokeW = 1`, dim grey.
+  - **Nodes:** `vector.FillCircle(r = nodeRadius = 11)` filled grey, then `vector.StrokeCircle(strokeWidth = 2)` lighter grey ring. Antialiased.
+  - **Labels:** centered under each node (`text.Measure` → `text.Draw`), `mapLabelFontPt = 9`, separate `text.Face` cached on `Game.mapLabelFace` (loaded via `loadFont`).
+- **Node states:** `NodeState` covers Normal / Attack / Infected / Patched per CONCEPT, but only `Normal` colors are wired today; the rest are reserved for the core loop.
 
 ## News feed widget
 
@@ -136,7 +148,7 @@ Implemented in `feed_drag.go`, called from `Update` between `requestFeedScrollBo
 | CONCEPT | Code today |
 |---------|------------|
 | Status bar (time + game stats) | Phone strip (clock + signal + battery); game stats deferred to a separate header |
-| Interactive node map | Empty styled container |
+| Interactive node map | Static greybox topology (10 nodes, star + ring edges); no interaction yet |
 | Core loop (attack / patch / fail) | Not implemented |
 | News as consequence stream | Placeholder + test ticker |
 
@@ -146,6 +158,7 @@ Implemented in `feed_drag.go`, called from `Update` between `requestFeedScrollBo
 |------|------|
 | `main.go` | Game struct, UI tree, bands, feed scroll, test news |
 | `titlebar.go` | Phone-style title bar (clock + signal + battery icons via `vector`) |
+| `nodes.go` | Node map: data, topology, custom `vector` + `text/v2` draw |
 | `feed_drag.go` | Touch / left-mouse drag-to-scroll for the news feed |
 | `wheel_native.go` | `feedWheelContentPixelsPerUnit = 18.0` (build tag `!js`) |
 | `wheel_js.go` | `feedWheelContentPixelsPerUnit = 1.0` (build tag `js`) |

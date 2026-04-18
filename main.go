@@ -70,6 +70,10 @@ type Game struct {
 	newsText   *widget.Text
 	clockText  *widget.Text
 
+	mapLabelFace text.Face
+	nodes        []Node
+	edges        []Edge
+
 	lastW int
 	lastH int
 
@@ -201,6 +205,10 @@ func newGame() (*Game, error) {
 	g.feedScrollPx = -1
 	g.lastTestNews = time.Now()
 	g.clockText = populatePhoneTitleBar(statusBar, face)
+	if labelFace, err := loadFont(mapLabelFontPt); err == nil {
+		g.mapLabelFace = labelFace
+	}
+	g.nodes, g.edges = defaultNetwork()
 	wireFeedScrollWheel(g)
 	return g, nil
 }
@@ -330,6 +338,7 @@ func (g *Game) Update() error {
 
 func (g *Game) Draw(screen *ebiten.Image) {
 	g.ui.Draw(screen)
+	g.drawNodeMap(screen)
 }
 
 func (g *Game) Layout(_, _ int) (int, int) {

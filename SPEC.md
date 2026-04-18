@@ -36,10 +36,11 @@ Percents are constants (`bandTopPercent = 6`, `bandMidPercent = 60`); bottom ban
 
 - **Container:** the top band (`statusBar`) uses `AnchorLayout` with 2 px vertical padding and a near-black background, mimicking a phone status strip.
 - **Left:** `widget.Text` (`clockText`) anchored start/center, `15:04` 24-hour format, refreshed every frame in `Update` via `updateClock` (no-op if label unchanged).
-- **Right:** `widget.Container` with `RowLayout` (horizontal, spacing 6, right padding 8), holding two `widget.Graphic`s built once with `vector.DrawFilledRect` / `StrokeRect`:
+- **Right:** `widget.Container` with `RowLayout` (horizontal, spacing 6, right padding `titleBarPadX = 20`), holding the network label and two `widget.Graphic`s built once with `vector.FillRect` / `StrokeRect`:
   - **Signal:** `signalBarCount = 4` ascending bars (`signalBarW = 3`, gap 2, base 4 px, step 3 px). Filled bars use `titleBarFG`, missing bars use `titleBarDimFG`.
+  - **5G label:** `widget.Text` with `networkLabel = "5G"` between signal and battery, vertically centered via `RowLayoutPositionCenter`.
   - **Battery:** outlined body (`22×10`) with `2×4` tip on the right; inside, `batterySegments = 4` filled cells (`batterySegInset = 2`, `batterySegInterval = 1`).
-- Game-state header (infection %, patches, timer per CONCEPT) is **not** in this bar — it will be a separate band added later.
+- Game-state header (infection %, patches) is **not** in this bar — it lives as the [game-state overlay](#game-state-overlay-top-of-map) on top of the map.
 
 ## Node map (middle band)
 
@@ -49,17 +50,42 @@ Percents are constants (`bandTopPercent = 6`, `bandMidPercent = 60`); bottom ban
 - **Coordinates:** `Node.X/Y` are normalized `[0..1]` inside the inner rect (`rect` minus `mapPaddingPx = 10` on every side). Ring radius `mapOuterRingRel = 0.36`.
 - **Visuals:**
   - **Edges:** `vector.StrokeLine` with `edgeStrokeW = 1`, dim grey.
-  - **Nodes:** `vector.FillCircle(r = nodeRadius = 11)` filled grey, then `vector.StrokeCircle(strokeWidth = 2)` lighter grey ring. Antialiased.
+  - **Nodes:** `vector.FillCircle(r = nodeRadius = 11)` then `vector.StrokeCircle(strokeWidth = 2)`. Fill/stroke colors come from `nodeColors(state)`. Antialiased.
   - **Labels:** centered under each node (`text.Measure` → `text.Draw`), `mapLabelFontPt = 9`, separate `text.Face` cached on `Game.mapLabelFace` (loaded via `loadFont`).
-- **Node states:** `NodeState` covers Normal / Attack / Infected / Patched per CONCEPT, but only `Normal` colors are wired today; the rest are reserved for the core loop.
+- **Node state palette:** Normal grey, Attack yellow, Infected red, Patched near-black with a dim ring.
+
+### Per-node fields
+
+| Field | Meaning |
+|-------|---------|
+| `Weight` | Contribution to `infectionPct` when the node flips Infected. Sum over all nodes = **100** (Phil&Tropic 1; ring tuned by real-world analog: Sahara WS 14 / AWS, MacroFrame 12 / Microsoft, Giggle 12 / Google, LeatherJacket 8 / NVIDIA, Dongle 5 / Apple, BootLoop 5 / CrowdStrike, Fiasco Sys 7 / Cisco, Monolith 15 / Linux Foundation, BroadCon 6 / Broadcom, GPMidas 15 / finance hub). |
+| `Defense` | Dwell time the node survives in `Attack` before flipping `Infected`. Sampled per node from `[defenseMin = 5s, defenseMax = 15s)` at network creation. |
+| `AttackedAt` | Wall time when the node entered `Attack` (set by `attackTick`). |
+
+### Attack schedule and capture
+
+Phil&Tropic starts `Infected`; everything else starts `Normal`.
+
+- **`attackTick` (`nodes.go`)** runs every `attackInterval = 3s` (driven from `Update` via `lastAttackAt`). It computes `infectedFrontier(nodes, edges)` — `Normal` nodes adjacent to any `Infected` node — and promotes a random one to `Attack`, stamping `AttackedAt = time.Now()`. No-op when the frontier is empty.
+- **`progressAttacks` (`nodes.go`)** runs every `Update` so capture timing is independent of `attackInterval`. For each `Attack` node, if `time.Since(AttackedAt) >= Defense`, flips it to `Infected` and adds its `Weight` to `g.infectionPct` (clamped to 100).
+- **Pulse:** `Attack` nodes pulse — fill alpha is modulated by `attackBlinkAlpha(time.Since(g.epoch))` (sine, period `attackBlinkPeriodSec = 0.6`, floor `attackBlinkMinAlpha = 0.25`). All attacking nodes blink in phase because the clock is shared. Stroke stays opaque so the node never disappears.
+
+### Click-to-patch
+
+`handlePatchClick` (`nodes.go`), called from `Update` before `handleFeedDrag`:
+
+- Consumes `IsMouseButtonJustPressed(MouseButtonLeft)` or `AppendJustPressedTouchIDs` whose press lies inside `mapPanel.GetWidget().Rect`.
+- `tryPatchAt(x, y)` walks `g.nodes`, finds the first `Attack` node whose hit disc covers `(x, y)` (radius `nodeRadius + 4 px` slack for finger taps), flips its state to `Patched`, and decrements `g.patchesLeft`.
+- Guarded by `g.patchesLeft > 0`. Misses are no-ops.
+- Map clicks and feed drags don't interfere because they target disjoint rects.
 
 ## Game-state overlay (top of map)
 
 - **Where:** drawn last in `Game.Draw` (after `ui.Draw` and `drawNodeMap`), so it sits **on top** of the map. Position: `mapPanel.GetWidget().Rect` shifted in by `overlayMarginPx = 6` on every side, height `overlayHeightPx = 24`. Background is semi-transparent dark (`#0a0b0e c8`) with a 1 px border, so the topmost ring nodes still bleed through visually.
-- **State on `Game`:** `infectionPct float64` (starts at `overlayMinInfection = 1`, clamped `[0, 100]` at draw time) and `patchesLeft int` (starts at `startingPatchCount = 5`).
+- **State on `Game`:** `infectionPct float64` (initialized via `initialInfectionPct(nodes)` = sum of weights of already-`Infected` nodes; grown by `progressAttacks` on every `Attack → Infected` transition; clamped `[0, 100]` at draw time) and `patchesLeft int` (starts at `startingPatchCount = 5`, decremented by `tryPatchAt`).
 - **Layout:**
   - Left, anchored start: `INFECTION` label (`overlayLabelFontPt = 9`) → progress bar (`infectionBarW = 90`, `infectionBarH = 6`, dark track + red fill proportional to `infectionPct`) → `NN%` value (`overlayValueFontPt = 12`).
-  - Right, anchored end: `xN` value → `PATCHES` label.
+  - Right, anchored end: `xN` value → `"PATCHES"` label (rendered with the surrounding quotes).
   - All text uses `text.AlignCenter` for the secondary axis to vertical-center against the strip's midline; `drawAlignedText` returns rendered width so left/right chains can advance/retreat without separate `Measure` calls.
 - **Faces:** two cached on `Game` (`overlayLabelFace`, `overlayValueFace`) loaded via `loadFont`; missing faces silently skip the overlay (no crash).
 
@@ -157,9 +183,9 @@ Implemented in `feed_drag.go`, called from `Update` between `requestFeedScrollBo
 
 | CONCEPT | Code today |
 |---------|------------|
-| Status bar (time + game stats) | Phone strip (clock + signal + battery); game stats overlay (infection % + patches) drawn on top of the map |
-| Interactive node map | Static greybox topology (10 nodes, star + ring edges); no interaction yet |
-| Core loop (attack / patch / fail) | Not implemented |
+| Status bar (time + game stats) | Phone strip (clock + signal + 5G + battery); game stats overlay (infection % + patches) drawn on top of the map |
+| Interactive node map | Greybox topology (Phil&Tropic hub + 10 ring nodes); attacks spread along edges, click/tap patches `Attack` nodes |
+| Core loop (attack / patch / fail) | Partial: `Phil&Tropic` starts `Infected`; periodic `attackTick` promotes a frontier neighbor to `Attack`; `progressAttacks` flips `Attack → Infected` after the node's `Defense`, growing `infectionPct` by `Weight`; player consumes patches by clicking. No fail/win check yet, no news consequences yet. |
 | News as consequence stream | Placeholder + test ticker |
 
 ## File map
@@ -168,7 +194,7 @@ Implemented in `feed_drag.go`, called from `Update` between `requestFeedScrollBo
 |------|------|
 | `main.go` | Game struct, UI tree, bands, feed scroll, test news |
 | `titlebar.go` | Phone-style title bar (clock + signal + battery icons via `vector`) |
-| `nodes.go` | Node map: data, topology, custom `vector` + `text/v2` draw |
+| `nodes.go` | Node map: data (state/weight/defense), topology, draw, attack scheduling, click-to-patch |
 | `overlay.go` | Game-state overlay (infection %, patches) drawn on top of the map |
 | `feed_drag.go` | Touch / left-mouse drag-to-scroll for the news feed |
 | `wheel_native.go` | `feedWheelContentPixelsPerUnit = 18.0` (build tag `!js`) |

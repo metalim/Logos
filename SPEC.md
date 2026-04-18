@@ -65,6 +65,33 @@ The wheel does **not** jump by a full viewport per notch (unlike `a.Y * viewH / 
 
 A single constant cannot work for both: 18 on js turns one mouse tick (4 → 72 px ≈ 5 lines) into a jump; 1.0 on desktop would make the wheel near-inert (0.1 → 0.1 px, snapped to 1).
 
+### Drag-to-scroll (touch + left mouse)
+
+Implemented in `feed_drag.go`, called from `Update` between `requestFeedScrollBottom` and `stepSmoothFeedScroll`.
+
+**State (game-owned):**
+
+| Field | Meaning |
+|-------|---------|
+| `feedDragActive` | A press started inside `feedScroll.GetWidget().Rect` and the pointer is still down. |
+| `feedDragMouse` | True for left-mouse drag; false for touch. |
+| `feedDragTouchID` | `ebiten.TouchID` captured at press; ignored when `feedDragMouse`. |
+| `feedDragStartY` | Pointer Y at press (screen coords). |
+| `feedDragStartPx` | `feedScrollPx` snapshot at press; if uninitialized (`< 0`), seeded from `ScrollTop * extra`. |
+
+**Begin:** scan `inpututil.AppendJustPressedTouchIDs` first (mobile takes priority), then `IsMouseButtonJustPressed(MouseButtonLeft)`. Press must lie inside `feedScroll.GetWidget().Rect`.
+
+**Move (per frame, while active):**
+
+1. Confirm the pointer is still down — touch ID still in `ebiten.AppendTouchIDs(nil)`, or left mouse still pressed. Otherwise clear `feedDragActive`.
+2. If `extra <= 0`, no-op (content shorter than viewport).
+3. `newPx = feedDragStartPx - (currentY - feedDragStartY)`, clamped to `[0, extra]`.
+4. **Write `feedScrollPx = newPx` directly** (1:1 with finger, bypassing easing) **and** `feedScrollTarget = newPx / extra`.
+
+**Why bypass easing:** mobile expectation is finger-locked content. Setting both `feedScrollPx` and `feedScrollTarget` to the same value means `stepSmoothFeedScroll` sees `diff = 0` after release and leaves the position unchanged until the next wheel/auto-bottom request.
+
+**Interaction with auto–scroll-to-bottom:** `requestFeedScrollBottom` runs **before** `handleFeedDrag` in `Update`, so a drag in progress overrides any pending bottom request for that frame. New content arriving mid-drag still grows `extra`; the user keeps the same `feedScrollPx`, so the visible position stays put.
+
 ### Smoothed scroll state (game-owned)
 
 | Field | Meaning |
@@ -109,6 +136,7 @@ A single constant cannot work for both: 18 on js turns one mouse tick (4 → 72 
 | Path | Role |
 |------|------|
 | `main.go` | Game struct, UI tree, bands, feed scroll, test news |
+| `feed_drag.go` | Touch / left-mouse drag-to-scroll for the news feed |
 | `wheel_native.go` | `feedWheelContentPixelsPerUnit = 18.0` (build tag `!js`) |
 | `wheel_js.go` | `feedWheelContentPixelsPerUnit = 1.0` (build tag `js`) |
 | `wasm/index.html` | WASM shell copied to `dist/wasm/` |

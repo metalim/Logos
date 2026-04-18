@@ -70,6 +70,13 @@ type Game struct {
 	// Set when layout/text changed; requestFeedScrollBottom runs after ui.Update (PreferredSize is unsafe during Layout).
 	feedScrollNeedBottom bool
 
+	// Drag-to-scroll state for the news feed (touch on mobile, left mouse on desktop).
+	feedDragActive  bool
+	feedDragMouse   bool
+	feedDragTouchID ebiten.TouchID
+	feedDragStartY  int
+	feedDragStartPx float64
+
 	testNewsSerial int
 	lastTestNews   time.Time
 }
@@ -336,6 +343,7 @@ func (g *Game) Update() error {
 		g.feedScrollNeedBottom = false
 		g.requestFeedScrollBottom()
 	}
+	g.handleFeedDrag()
 	g.stepSmoothFeedScroll()
 	return nil
 }

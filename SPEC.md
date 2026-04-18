@@ -53,6 +53,16 @@ Percents are constants (`bandTopPercent = 6`, `bandMidPercent = 60`); bottom ban
   - **Labels:** centered under each node (`text.Measure` → `text.Draw`), `mapLabelFontPt = 9`, separate `text.Face` cached on `Game.mapLabelFace` (loaded via `loadFont`).
 - **Node states:** `NodeState` covers Normal / Attack / Infected / Patched per CONCEPT, but only `Normal` colors are wired today; the rest are reserved for the core loop.
 
+## Game-state overlay (top of map)
+
+- **Where:** drawn last in `Game.Draw` (after `ui.Draw` and `drawNodeMap`), so it sits **on top** of the map. Position: `mapPanel.GetWidget().Rect` shifted in by `overlayMarginPx = 6` on every side, height `overlayHeightPx = 24`. Background is semi-transparent dark (`#0a0b0e c8`) with a 1 px border, so the topmost ring nodes still bleed through visually.
+- **State on `Game`:** `infectionPct float64` (starts at `overlayMinInfection = 1`, clamped `[0, 100]` at draw time) and `patchesLeft int` (starts at `startingPatchCount = 5`).
+- **Layout:**
+  - Left, anchored start: `INFECTION` label (`overlayLabelFontPt = 9`) → progress bar (`infectionBarW = 90`, `infectionBarH = 6`, dark track + red fill proportional to `infectionPct`) → `NN%` value (`overlayValueFontPt = 12`).
+  - Right, anchored end: `xN` value → `PATCHES` label.
+  - All text uses `text.AlignCenter` for the secondary axis to vertical-center against the strip's midline; `drawAlignedText` returns rendered width so left/right chains can advance/retreat without separate `Measure` calls.
+- **Faces:** two cached on `Game` (`overlayLabelFace`, `overlayValueFace`) loaded via `loadFont`; missing faces silently skip the overlay (no crash).
+
 ## News feed widget
 
 - **Content:** `widget.Text` inside `widget.ScrollContainer` (`StretchContentWidth`).
@@ -147,7 +157,7 @@ Implemented in `feed_drag.go`, called from `Update` between `requestFeedScrollBo
 
 | CONCEPT | Code today |
 |---------|------------|
-| Status bar (time + game stats) | Phone strip (clock + signal + battery); game stats deferred to a separate header |
+| Status bar (time + game stats) | Phone strip (clock + signal + battery); game stats overlay (infection % + patches) drawn on top of the map |
 | Interactive node map | Static greybox topology (10 nodes, star + ring edges); no interaction yet |
 | Core loop (attack / patch / fail) | Not implemented |
 | News as consequence stream | Placeholder + test ticker |
@@ -159,6 +169,7 @@ Implemented in `feed_drag.go`, called from `Update` between `requestFeedScrollBo
 | `main.go` | Game struct, UI tree, bands, feed scroll, test news |
 | `titlebar.go` | Phone-style title bar (clock + signal + battery icons via `vector`) |
 | `nodes.go` | Node map: data, topology, custom `vector` + `text/v2` draw |
+| `overlay.go` | Game-state overlay (infection %, patches) drawn on top of the map |
 | `feed_drag.go` | Touch / left-mouse drag-to-scroll for the news feed |
 | `wheel_native.go` | `feedWheelContentPixelsPerUnit = 18.0` (build tag `!js`) |
 | `wheel_js.go` | `feedWheelContentPixelsPerUnit = 1.0` (build tag `js`) |

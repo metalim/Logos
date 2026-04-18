@@ -42,6 +42,9 @@ const (
 	newsTextSideInset = 20
 	newsTextMinWidth  = 40
 
+	// Initial player resource per CONCEPT (placeholder until the core loop is wired).
+	startingPatchCount = 5
+
 	testNewsInterval = 5 * time.Second
 	// feedScrollPx moves each frame by a fraction of (targetPx - feedScrollPx); lambda scales with dt (~seconds^-1).
 	feedScrollLambda = 14.0
@@ -70,9 +73,15 @@ type Game struct {
 	newsText   *widget.Text
 	clockText  *widget.Text
 
-	mapLabelFace text.Face
-	nodes        []Node
-	edges        []Edge
+	mapLabelFace     text.Face
+	overlayLabelFace text.Face
+	overlayValueFace text.Face
+	nodes            []Node
+	edges            []Edge
+
+	// Game-state overlay (drawn on top of the map's upper edge).
+	infectionPct float64
+	patchesLeft  int
 
 	lastW int
 	lastH int
@@ -208,7 +217,15 @@ func newGame() (*Game, error) {
 	if labelFace, err := loadFont(mapLabelFontPt); err == nil {
 		g.mapLabelFace = labelFace
 	}
+	if f, err := loadFont(overlayLabelFontPt); err == nil {
+		g.overlayLabelFace = f
+	}
+	if f, err := loadFont(overlayValueFontPt); err == nil {
+		g.overlayValueFace = f
+	}
 	g.nodes, g.edges = defaultNetwork()
+	g.infectionPct = overlayMinInfection
+	g.patchesLeft = startingPatchCount
 	wireFeedScrollWheel(g)
 	return g, nil
 }
@@ -339,6 +356,7 @@ func (g *Game) Update() error {
 func (g *Game) Draw(screen *ebiten.Image) {
 	g.ui.Draw(screen)
 	g.drawNodeMap(screen)
+	g.drawGameOverlay(screen)
 }
 
 func (g *Game) Layout(_, _ int) (int, int) {

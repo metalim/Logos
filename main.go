@@ -134,6 +134,14 @@ func wireFeedScrollWheel(g *Game) {
 	})
 }
 
+// setBandHeight pins a band to an exact height in the root RowLayout: MinHeight handles
+// empty children (statusBar/mapPanel), MaxHeight clamps oversized PreferredSize (feedScroll's
+// ScrollContainer reports content size). Stretch keeps the band full-width.
+func setBandHeight(w *widget.Widget, h int) {
+	w.MinHeight = h
+	w.LayoutData = widget.RowLayoutData{Stretch: true, MaxHeight: h}
+}
+
 // newBandContainer builds one of the three vertical bands: stretched to root width,
 // height filled by MinHeight written in applyVerticalBands, with the given inner layout and bg.
 func newBandContainer(bg color.NRGBA, inner widget.Layouter) *widget.Container {
@@ -243,9 +251,12 @@ func (g *Game) applyVerticalBands(outsideW, outsideH int) {
 	h2 := outsideH * bandMidPercent / 100
 	h3 := outsideH - h1 - h2 - 2*bandSpacingPx
 
-	g.statusBar.GetWidget().MinHeight = h1
-	g.mapPanel.GetWidget().MinHeight = h2
-	g.feedScroll.GetWidget().MinHeight = h3
+	// MaxHeight is critical for feedScroll: ScrollContainer.PreferredSize() returns the
+	// (huge) content size, which RowLayout would otherwise hand it as the laid-out height,
+	// collapsing the scroll slack to zero. MinHeight covers empty bands; MaxHeight pins them.
+	setBandHeight(g.statusBar.GetWidget(), h1)
+	setBandHeight(g.mapPanel.GetWidget(), h2)
+	setBandHeight(g.feedScroll.GetWidget(), h3)
 
 	mw := float64(outsideW - newsTextSideInset)
 	if mw < newsTextMinWidth {

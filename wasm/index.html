@@ -5,19 +5,19 @@
 	<!-- Dark Reader: do not recolor (page / canvas are already dark). -->
 	<meta name="darkreader-lock">
 	<meta name="viewport" content="width=device-width, height=device-height, initial-scale=1">
-	<title>Logos</title>
+	<title>Zero-Day Lunch</title>
 	<style>
 		html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #111; }
 		canvas { display: block; margin: 0 auto; }
 	</style>
+	<script src="wasm_exec.js"></script>
+	<script>
+		const go = new Go();
+		WebAssembly.instantiateStreaming(fetch("game.wasm"), go.importObject)
+			.then((result) => { go.run(result.instance); })
+			.catch((err) => { console.error(err); });
+	</script>
 </head>
 <body>
-<script src="wasm_exec.js"></script>
-<script>
-const go = new Go();
-WebAssembly.instantiateStreaming(fetch("game.wasm"), go.importObject)
-	.then((result) => { go.run(result.instance); })
-	.catch((err) => { console.error(err); });
-</script>
 </body>
 </html>

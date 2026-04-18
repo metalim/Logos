@@ -83,6 +83,10 @@ type Game struct {
 	infectionPct float64
 	patchesLeft  int
 
+	// Attack scheduling and animation clock.
+	epoch        time.Time
+	lastAttackAt time.Time
+
 	lastW int
 	lastH int
 
@@ -234,6 +238,8 @@ func newGame() (*Game, error) {
 	g.nodes, g.edges = defaultNetwork()
 	g.infectionPct = overlayMinInfection
 	g.patchesLeft = startingPatchCount
+	g.epoch = time.Now()
+	g.lastAttackAt = g.epoch
 	wireFeedScrollWheel(g)
 	return g, nil
 }
@@ -351,6 +357,10 @@ func (g *Game) Update() error {
 		g.lastTestNews = time.Now()
 		g.pushTestNews()
 	}
+	if time.Since(g.lastAttackAt) >= attackInterval {
+		g.lastAttackAt = time.Now()
+		g.attackTick()
+	}
 
 	updateClock(g.clockText)
 
@@ -359,6 +369,7 @@ func (g *Game) Update() error {
 		g.feedScrollNeedBottom = false
 		g.requestFeedScrollBottom()
 	}
+	g.handlePatchClick()
 	g.handleFeedDrag()
 	g.stepSmoothFeedScroll()
 	return nil

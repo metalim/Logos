@@ -1,10 +1,14 @@
 package main
 
 import (
+	"image"
 	"image/color"
 	"math"
+	"math/rand/v2"
+	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
@@ -17,6 +21,10 @@ const (
 	mapPaddingPx    = 10
 	mapLabelFontPt  = 9
 	mapOuterRingRel = 0.36 // ring radius relative to min(innerW, innerH)/2
+
+	attackInterval       = 3 * time.Second
+	attackBlinkPeriodSec = 0.6
+	attackBlinkMinAlpha  = 0.25 // floor of the pulse so the node stays visible
 )
 
 // NodeState mirrors the four states from CONCEPT (Норма / Атака / Заражен / Пропатчен).
@@ -44,6 +52,12 @@ type Edge struct{ From, To int }
 var (
 	nodeFillNormal   = color.NRGBA{R: 0x6e, G: 0x70, B: 0x76, A: 0xff}
 	nodeStrokeNormal = color.NRGBA{R: 0xb8, G: 0xba, B: 0xc0, A: 0xff}
+	nodeFillAttack   = color.NRGBA{R: 0xe6, G: 0xc8, B: 0x3a, A: 0xff}
+	nodeStrokeAttack = color.NRGBA{R: 0xff, G: 0xe8, B: 0x70, A: 0xff}
+	nodeFillInfected = color.NRGBA{R: 0xc0, G: 0x30, B: 0x30, A: 0xff}
+	nodeStrokeInfect = color.NRGBA{R: 0xff, G: 0x60, B: 0x60, A: 0xff}
+	nodeFillPatched  = color.NRGBA{R: 0x10, G: 0x10, B: 0x12, A: 0xff}
+	nodeStrokePatch  = color.NRGBA{R: 0x55, G: 0x55, B: 0x5a, A: 0xff}
 	edgeColor        = color.NRGBA{R: 0x40, G: 0x42, B: 0x48, A: 0xff}
 	labelColor       = color.NRGBA{R: 0xc8, G: 0xca, B: 0xd0, A: 0xff}
 )
@@ -69,7 +83,7 @@ func defaultNetwork() ([]Node, []Edge) {
 	}
 
 	nodes := make([]Node, 0, len(ring)+1)
-	nodes = append(nodes, Node{Name: "Phil&Tropic", X: cx, Y: cy})
+	nodes = append(nodes, Node{Name: "Phil&Tropic", X: cx, Y: cy, State: NodeStateInfected})
 	for i, name := range ring {
 		angle := -math.Pi/2 + 2*math.Pi*float64(i)/float64(len(ring))
 		nodes = append(nodes, Node{
@@ -122,8 +136,12 @@ func (g *Game) drawNodeMap(screen *ebiten.Image) {
 
 	for _, n := range g.nodes {
 		x, y := pos(n)
-		vector.FillCircle(screen, x, y, nodeRadius, nodeFillNormal, true)
-		vector.StrokeCircle(screen, x, y, nodeRadius, nodeStrokeW, nodeStrokeNormal, true)
+		fill, stroke := nodeColors(n.State)
+		if n.State == NodeStateAttack {
+			fill = scaleAlpha(fill, attackBlinkAlpha(time.Since(g.epoch)))
+		}
+		vector.FillCircle(screen, x, y, nodeRadius, fill, true)
+		vector.StrokeCircle(screen, x, y, nodeRadius, nodeStrokeW, stroke, true)
 	}
 
 	if g.mapLabelFace != nil {
@@ -133,6 +151,142 @@ func (g *Game) drawNodeMap(screen *ebiten.Image) {
 				float64(x), float64(y)+nodeRadius+nodeLabelGapY, labelColor)
 		}
 	}
+}
+
+// nodeColors maps a state to (fill, stroke). Attack callers further modulate fill alpha
+// via attackBlinkAlpha to produce the yellow pulse.
+func nodeColors(s NodeState) (fill, stroke color.NRGBA) {
+	switch s {
+	case NodeStateAttack:
+		return nodeFillAttack, nodeStrokeAttack
+	case NodeStateInfected:
+		return nodeFillInfected, nodeStrokeInfect
+	case NodeStatePatched:
+		return nodeFillPatched, nodeStrokePatch
+	default:
+		return nodeFillNormal, nodeStrokeNormal
+	}
+}
+
+// attackBlinkAlpha returns a [attackBlinkMinAlpha .. 1] pulse driven by the wall clock,
+// so all attacking nodes blink in phase regardless of when each one entered Attack.
+func attackBlinkAlpha(t time.Duration) float64 {
+	phase := math.Sin(2 * math.Pi * t.Seconds() / attackBlinkPeriodSec)
+	k := 0.5 + 0.5*phase
+	return attackBlinkMinAlpha + (1-attackBlinkMinAlpha)*k
+}
+
+func scaleAlpha(c color.NRGBA, a float64) color.NRGBA {
+	if a < 0 {
+		a = 0
+	} else if a > 1 {
+		a = 1
+	}
+	c.A = uint8(float64(c.A) * a)
+	return c
+}
+
+// nodeScreenPos returns the on-screen center of node i in the current map layout,
+// or ok=false if the map area is missing/degenerate.
+func (g *Game) nodeScreenPos(i int) (cx, cy float32, ok bool) {
+	if g.mapPanel == nil || i < 0 || i >= len(g.nodes) {
+		return 0, 0, false
+	}
+	rect := g.mapPanel.GetWidget().Rect
+	innerW := float64(rect.Dx() - 2*mapPaddingPx)
+	innerH := float64(rect.Dy() - 2*mapPaddingPx)
+	if innerW <= 0 || innerH <= 0 {
+		return 0, 0, false
+	}
+	n := g.nodes[i]
+	return float32(float64(rect.Min.X+mapPaddingPx) + n.X*innerW),
+		float32(float64(rect.Min.Y+mapPaddingPx) + n.Y*innerH),
+		true
+}
+
+// handlePatchClick consumes a just-pressed pointer (mouse or touch) over the map area
+// and patches the topmost Attack node under it, paying one patch from the inventory.
+// No-op when patches are exhausted, when the pointer misses every Attack node, or when
+// the press happened outside the map area (so feed-drag etc. stay independent).
+func (g *Game) handlePatchClick() {
+	if g.mapPanel == nil || g.patchesLeft <= 0 {
+		return
+	}
+	mapRect := g.mapPanel.GetWidget().Rect
+
+	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+		x, y := ebiten.CursorPosition()
+		if image.Pt(x, y).In(mapRect) {
+			g.tryPatchAt(x, y)
+		}
+		return
+	}
+	for _, id := range inpututil.AppendJustPressedTouchIDs(nil) {
+		x, y := ebiten.TouchPosition(id)
+		if image.Pt(x, y).In(mapRect) {
+			if g.tryPatchAt(x, y) {
+				return
+			}
+		}
+	}
+}
+
+// tryPatchAt patches an Attack node whose hit-disc covers (x, y); returns true on success.
+// Hit radius is slightly inflated for finger-friendly tapping on touch screens.
+func (g *Game) tryPatchAt(x, y int) bool {
+	const hitSlackPx = 4
+	rSq := float64(nodeRadius+hitSlackPx) * float64(nodeRadius+hitSlackPx)
+	for i := range g.nodes {
+		if g.nodes[i].State != NodeStateAttack {
+			continue
+		}
+		cx, cy, ok := g.nodeScreenPos(i)
+		if !ok {
+			continue
+		}
+		dx := float64(x) - float64(cx)
+		dy := float64(y) - float64(cy)
+		if dx*dx+dy*dy <= rSq {
+			g.nodes[i].State = NodeStatePatched
+			g.patchesLeft--
+			return true
+		}
+	}
+	return false
+}
+
+// attackTick promotes one Normal neighbour of any Infected node to Attack, if any are left.
+// Called from Update on attackInterval cadence.
+func (g *Game) attackTick() {
+	frontier := infectedFrontier(g.nodes, g.edges)
+	if len(frontier) == 0 {
+		return
+	}
+	pick := frontier[rand.IntN(len(frontier))]
+	g.nodes[pick].State = NodeStateAttack
+}
+
+// infectedFrontier returns indices of Normal nodes that share an edge with any Infected node.
+// Duplicates removed; order is deterministic w.r.t. edge order, which keeps spread predictable.
+func infectedFrontier(nodes []Node, edges []Edge) []int {
+	seen := make(map[int]bool)
+	out := make([]int, 0, len(edges))
+	for _, e := range edges {
+		var n int
+		switch {
+		case nodes[e.From].State == NodeStateInfected && nodes[e.To].State == NodeStateNormal:
+			n = e.To
+		case nodes[e.To].State == NodeStateInfected && nodes[e.From].State == NodeStateNormal:
+			n = e.From
+		default:
+			continue
+		}
+		if !seen[n] {
+			seen[n] = true
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 func drawCenteredLabel(dst *ebiten.Image, face text.Face, s string, cx, top float64, clr color.Color) {

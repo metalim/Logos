@@ -78,7 +78,7 @@ func (g *Game) drawGameOverlay(screen *ebiten.Image) {
 	rightX -= drawAlignedText(screen, g.overlayValueFace, fmt.Sprintf("x%d", g.patchesLeft),
 		rightX, cy, text.AlignEnd, text.AlignCenter, overlayValue)
 	rightX -= overlayItemGapPx
-	drawAlignedText(screen, g.overlayLabelFace, "PATCHES",
+	drawAlignedText(screen, g.overlayLabelFace, `"PATCHES"`,
 		rightX, cy, text.AlignEnd, text.AlignCenter, overlayLabel)
 }
 

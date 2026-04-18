@@ -50,11 +50,20 @@ Percents are integer fractions of the **outside** height passed into `applyVerti
 
 **Wheel (manual):** for `WidgetScrolledEventArgs` vertical `a.Y`:
 
-1. `contentPx = a.Y * feedWheelContentPixelsPerUnit` (default **18** — about one line at 14pt; tunable in `main.go`).
+1. `contentPx = a.Y * feedWheelContentPixelsPerUnit`.
 2. If `contentPx != 0` and `|contentPx| < 1`, use **±1** content pixel (avoids a dead zone on tiny trackpad deltas).
 3. Normalized step `delta = contentPx / extra`; `feedScrollTarget` is clamped to [0, 1] after subtracting `delta`.
 
 The wheel does **not** jump by a full viewport per notch (unlike `a.Y * viewH / extra`).
+
+**`feedWheelContentPixelsPerUnit` is platform-split via build tags** because `a.Y` units differ:
+
+| Platform | Source of `a.Y` | Min observed | Constant | File |
+|----------|-----------------|--------------|----------|------|
+| Desktop (`!js`) | GLFW scroll units (fractional lines) | ~0.1 / step | **18.0** (≈ px per line at 14pt) | `wheel_native.go` |
+| WASM (`js`) | DOM `WheelEvent.deltaY`, **`deltaMode` ignored upstream** in ebiten v2 (`internal/ui/input_js.go`) | mouse ≈ 4 px/tick, trackpad ≈ 1 px/step (macOS) | **1.0** (1:1 px) | `wheel_js.go` |
+
+A single constant cannot work for both: 18 on js turns one mouse tick (4 → 72 px ≈ 5 lines) into a jump; 1.0 on desktop would make the wheel near-inert (0.1 → 0.1 px, snapped to 1).
 
 ### Smoothed scroll state (game-owned)
 
@@ -100,5 +109,7 @@ The wheel does **not** jump by a full viewport per notch (unlike `a.Y * viewH / 
 | Path | Role |
 |------|------|
 | `main.go` | Game struct, UI tree, bands, feed scroll, test news |
+| `wheel_native.go` | `feedWheelContentPixelsPerUnit = 18.0` (build tag `!js`) |
+| `wheel_js.go` | `feedWheelContentPixelsPerUnit = 1.0` (build tag `js`) |
 | `wasm/index.html` | WASM shell copied to `dist/wasm/` |
 | `Makefile` | `build`, `wasm`, `serve-wasm`, `clean` |

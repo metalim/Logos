@@ -34,9 +34,10 @@ const (
 	testNewsInterval = 5 * time.Second
 	// feedScrollPx moves each frame by a fraction of (targetPx - feedScrollPx); lambda scales with dt (~seconds^-1).
 	feedScrollLambda = 14.0
-	// Manual wheel: content pixels per unit of WidgetScrolledEventArgs.Y (~one text line at 14pt).
-	feedWheelContentPixelsPerUnit = 18.0
 )
+
+// feedWheelContentPixelsPerUnit lives in wheel_native.go / wheel_js.go: WidgetScrolledEventArgs.Y is in
+// GLFW scroll units on desktop (~tenths of a line) and in DOM pixels on js (deltaMode ignored upstream).
 
 func clampUnitInterval(x float64) float64 {
 	if x < 0 {

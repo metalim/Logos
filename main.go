@@ -1,7 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"log"
+	"runtime"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
@@ -15,15 +17,15 @@ func (g *Game) Update() error {
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
-	ebitenutil.DebugPrint(screen, "Logos — Ebiten (native / wasm)")
+	ebitenutil.DebugPrint(screen, fmt.Sprintf("Platform: %s/%s", runtime.GOOS, runtime.GOARCH))
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
-	return 640, 360
+	return 360, 640
 }
 
 func main() {
-	ebiten.SetWindowTitle("Logos")
+	ebiten.SetWindowTitle("Zero-Day Lunch")
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 
 	if err := ebiten.RunGame(&Game{}); err != nil {

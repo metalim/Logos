@@ -2,8 +2,10 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"image/color"
 	"log"
+	"math"
 
 	"github.com/ebitenui/ebitenui"
 	eimage "github.com/ebitenui/ebitenui/image"
@@ -26,6 +28,13 @@ const sampleNews = `• SAN FIASCO — Sahara Web Services reports cascading lat
 const (
 	screenWidth  = 360
 	screenHeight = 640
+
+	testNewsEverySecs = 5.0
+
+	// Higher = faster approach to feedScrollTarget (smooth auto-scroll).
+	feedScrollSmoothPerSec = 9.0
+	// When already at bottom, step back this much so smooth scroll can run toward new bottom.
+	feedScrollBottomNudge = 0.14
 )
 
 // Game is the root game state. Extend this struct with your systems and assets.
@@ -39,6 +48,12 @@ type Game struct {
 
 	lastW int
 	lastH int
+
+	// Auto-scroll target: ScrollTop in0..1; smoothed in Update toward this value.
+	feedScrollTarget float64
+
+	testNewsTimer  float64
+	testNewsSerial int
 }
 
 func loadFont(size float64) (text.Face, error) {
@@ -47,6 +62,36 @@ func loadFont(size float64) (text.Face, error) {
 		return nil, err
 	}
 	return &text.GoTextFace{Source: src, Size: size}, nil
+}
+
+// ebitenui ScrollContainer does not wire the wheel by default (see TextArea for the pattern).
+func wireFeedScrollWheel(g *Game) {
+	g.feedScroll.GetWidget().ScrolledEvent.AddHandler(func(args interface{}) {
+		a, ok := args.(*widget.WidgetScrolledEventArgs)
+		if !ok {
+			return
+		}
+		scroll := g.feedScroll
+		text := g.newsText
+		viewH := float64(scroll.ViewRect().Dy())
+		_, ch := text.PreferredSize()
+		if float64(ch) <= viewH {
+			return
+		}
+		page := int(math.Round(viewH / float64(ch) * 1000))
+		p := page / 3
+		if p < 1 {
+			p = 1
+		}
+		scroll.ScrollTop -= a.Y * float64(p) / 1000
+		if scroll.ScrollTop < 0 {
+			scroll.ScrollTop = 0
+		}
+		if scroll.ScrollTop > 1 {
+			scroll.ScrollTop = 1
+		}
+		g.feedScrollTarget = scroll.ScrollTop
+	})
 }
 
 func newGame() (*Game, error) {
@@ -113,7 +158,7 @@ func newGame() (*Game, error) {
 				HorizontalPosition: widget.AnchorLayoutPositionStart,
 				VerticalPosition:   widget.AnchorLayoutPositionStart,
 				StretchHorizontal:  true,
-				StretchVertical:    false,
+				StretchVertical:    true,
 				Padding:            &widget.Insets{Top: 1},
 			}),
 			widget.WidgetOpts.MinSize(0, 1),
@@ -134,6 +179,9 @@ func newGame() (*Game, error) {
 		feedScroll: feedScroll,
 		newsText:   newsText,
 	}
+	g.feedScrollTarget = 1
+	g.feedScroll.ScrollTop = 1
+	wireFeedScrollWheel(g)
 	return g, nil
 }
 
@@ -174,7 +222,7 @@ func (g *Game) applyVerticalBands(outsideW, outsideH int) {
 		HorizontalPosition: widget.AnchorLayoutPositionStart,
 		VerticalPosition:   widget.AnchorLayoutPositionStart,
 		StretchHorizontal:  true,
-		StretchVertical:    false,
+		StretchVertical:    true,
 		Padding:            &widget.Insets{Top: h1 + h2},
 	}
 	fs.MinHeight = h3
@@ -186,10 +234,73 @@ func (g *Game) applyVerticalBands(outsideW, outsideH int) {
 	g.newsText.MaxWidth = mw
 
 	g.root.RequestRelayout()
+	g.requestFeedScrollBottom()
+}
+
+func (g *Game) requestFeedScrollBottom() {
+	g.feedScrollTarget = 1
+}
+
+// nudgeFeedScrollIfPinnedToBottom moves ScrollTop slightly up when already at the end so
+// smoothFeedScroll has a non-zero delta after content height increases (ScrollTop=1 and target=1 gives diff=0).
+func (g *Game) nudgeFeedScrollIfPinnedToBottom() {
+	const eps = 1e-3
+	if g.feedScroll == nil {
+		return
+	}
+	if g.feedScroll.ScrollTop < 1-eps || g.feedScrollTarget < 1-eps {
+		return
+	}
+	g.feedScroll.ScrollTop = math.Max(0, g.feedScroll.ScrollTop-feedScrollBottomNudge)
+}
+
+func (g *Game) smoothFeedScroll(dt float64) {
+	if g.feedScroll == nil {
+		return
+	}
+	cur := g.feedScroll.ScrollTop
+	tgt := g.feedScrollTarget
+	diff := tgt - cur
+	if math.Abs(diff) < 1e-4 {
+		g.feedScroll.ScrollTop = tgt
+		return
+	}
+	alpha := 1 - math.Exp(-feedScrollSmoothPerSec*dt)
+	g.feedScroll.ScrollTop += diff * alpha
+	if g.feedScroll.ScrollTop < 0 {
+		g.feedScroll.ScrollTop = 0
+	}
+	if g.feedScroll.ScrollTop > 1 {
+		g.feedScroll.ScrollTop = 1
+	}
+}
+
+func (g *Game) pushTestNews() {
+	g.testNewsSerial++
+	line := fmt.Sprintf(
+		"\n\n• [TEST %d] Simulated wire: Janus ingest queue +%d; timer tick.",
+		g.testNewsSerial,
+		g.testNewsSerial*7%97,
+	)
+	g.newsText.Label += line
+	g.root.RequestRelayout()
+	g.nudgeFeedScrollIfPinnedToBottom()
+	g.requestFeedScrollBottom()
 }
 
 func (g *Game) Update() error {
+	dt := 1.0 / 60.0
+	if tps := ebiten.ActualTPS(); tps > 0 {
+		dt = 1.0 / tps
+	}
+	g.testNewsTimer += dt
+	for g.testNewsTimer >= testNewsEverySecs {
+		g.testNewsTimer -= testNewsEverySecs
+		g.pushTestNews()
+	}
+
 	g.ui.Update()
+	g.smoothFeedScroll(dt)
 	return nil
 }
 

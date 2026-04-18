@@ -236,7 +236,7 @@ func newGame() (*Game, error) {
 		g.overlayValueFace = f
 	}
 	g.nodes, g.edges = defaultNetwork()
-	g.infectionPct = overlayMinInfection
+	g.infectionPct = initialInfectionPct(g.nodes)
 	g.patchesLeft = startingPatchCount
 	g.epoch = time.Now()
 	g.lastAttackAt = g.epoch
@@ -361,6 +361,7 @@ func (g *Game) Update() error {
 		g.lastAttackAt = time.Now()
 		g.attackTick()
 	}
+	g.progressAttacks()
 
 	updateClock(g.clockText)
 

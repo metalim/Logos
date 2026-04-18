@@ -16,9 +16,8 @@ const (
 	overlayItemGapPx    = 6
 	infectionBarW       = 90
 	infectionBarH       = 6
-	overlayLabelFontPt  = 9
-	overlayValueFontPt  = 12
-	overlayMinInfection = 1
+	overlayLabelFontPt = 9
+	overlayValueFontPt = 12
 )
 
 var (

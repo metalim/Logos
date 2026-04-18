@@ -25,6 +25,11 @@ const (
 	attackInterval       = 3 * time.Second
 	attackBlinkPeriodSec = 0.6
 	attackBlinkMinAlpha  = 0.25 // floor of the pulse so the node stays visible
+
+	// Per-node defense window: time the node spends in Attack before flipping to Infected
+	// unless the player patches it. Values are sampled per-node from [defenseMin, defenseMax].
+	defenseMin = 5 * time.Second
+	defenseMax = 15 * time.Second
 )
 
 // NodeState mirrors the four states from CONCEPT (Норма / Атака / Заражен / Пропатчен).
@@ -44,6 +49,13 @@ type Node struct {
 	Name  string
 	X, Y  float64
 	State NodeState
+	// Weight is the node's contribution to the infection scale (percentage points).
+	// Sum across all nodes is 100, so a fully captured network reads 100%.
+	Weight float64
+	// Defense is the dwell time in Attack before progressAttacks flips this node to Infected.
+	// Sampled once at network creation; Phil&Tropic (already infected) leaves this zero.
+	Defense    time.Duration
+	AttackedAt time.Time // set when State transitions Normal -> Attack
 }
 
 // Edge connects two node indices.
@@ -69,27 +81,34 @@ var (
 func defaultNetwork() ([]Node, []Edge) {
 	const cx, cy = 0.5, 0.5
 
-	ring := []string{
-		"Sahara WS",
-		"MacroFrame",
-		"Giggle",
-		"LeatherJacket",
-		"Dongle",
-		"BootLoop",
-		"Fiasco Sys",
-		"Monolith",
-		"BroadCon",
-		"GPMidas",
+	// Weights sum to 100 (Phil&Tropic 1 + ring 99). Tuned by the real-world analog each
+	// company stands for in CONCEPT, so capturing big-tech / internet-core nodes hurts more.
+	ring := []struct {
+		name   string
+		weight float64
+	}{
+		{"Sahara WS", 14},           // AWS
+		{"MacroFrame", 12},          // Microsoft
+		{"Giggle", 12},              // Google
+		{"LeatherJacket", 8},        // NVIDIA
+		{"Dongle", 5},               // Apple
+		{"BootLoop", 5},             // CrowdStrike
+		{"Fiasco Sys", 7},           // Cisco
+		{"Monolith Foundation", 15}, // Linux Foundation
+		{"BroadCon", 6},             // Broadcom
+		{"GPMidas", 15},             // JP Morgan Chase
 	}
 
 	nodes := make([]Node, 0, len(ring)+1)
-	nodes = append(nodes, Node{Name: "Phil&Tropic", X: cx, Y: cy, State: NodeStateInfected})
-	for i, name := range ring {
+	nodes = append(nodes, Node{Name: "Phil&Tropic", X: cx, Y: cy, State: NodeStateInfected, Weight: 1})
+	for i, e := range ring {
 		angle := -math.Pi/2 + 2*math.Pi*float64(i)/float64(len(ring))
 		nodes = append(nodes, Node{
-			Name: name,
-			X:    cx + mapOuterRingRel*math.Cos(angle),
-			Y:    cy + mapOuterRingRel*math.Sin(angle),
+			Name:    e.name,
+			X:       cx + mapOuterRingRel*math.Cos(angle),
+			Y:       cy + mapOuterRingRel*math.Sin(angle),
+			Weight:  e.weight,
+			Defense: defenseMin + rand.N(defenseMax-defenseMin),
 		})
 	}
 
@@ -264,6 +283,38 @@ func (g *Game) attackTick() {
 	}
 	pick := frontier[rand.IntN(len(frontier))]
 	g.nodes[pick].State = NodeStateAttack
+	g.nodes[pick].AttackedAt = time.Now()
+}
+
+// initialInfectionPct sums weights of all already-infected nodes (just Phil&Tropic at start),
+// so the overlay scale stays consistent with the rule "+= Weight on each infection".
+func initialInfectionPct(nodes []Node) float64 {
+	pct := 0.0
+	for _, n := range nodes {
+		if n.State == NodeStateInfected {
+			pct += n.Weight
+		}
+	}
+	return pct
+}
+
+// progressAttacks flips any Attack node whose Defense window has elapsed to Infected,
+// adding its Weight to infectionPct (clamped to 100). Runs every Update so capture
+// timing is independent of attackInterval.
+func (g *Game) progressAttacks() {
+	now := time.Now()
+	for i := range g.nodes {
+		if g.nodes[i].State != NodeStateAttack {
+			continue
+		}
+		if now.Sub(g.nodes[i].AttackedAt) >= g.nodes[i].Defense {
+			g.nodes[i].State = NodeStateInfected
+			g.infectionPct += g.nodes[i].Weight
+			if g.infectionPct > 100 {
+				g.infectionPct = 100
+			}
+		}
+	}
 }
 
 // infectedFrontier returns indices of Normal nodes that share an edge with any Infected node.

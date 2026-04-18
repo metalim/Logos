@@ -6,6 +6,8 @@ import (
 	"image/color"
 	"log"
 	"math"
+	"strings"
+	"time"
 
 	"github.com/ebitenui/ebitenui"
 	eimage "github.com/ebitenui/ebitenui/image"
@@ -29,12 +31,9 @@ const (
 	screenWidth  = 360
 	screenHeight = 640
 
-	testNewsEverySecs = 5.0
-
-	// Higher = faster approach to feedScrollTarget (smooth auto-scroll).
-	feedScrollSmoothPerSec = 9.0
-	// When already at bottom, step back this much so smooth scroll can run toward new bottom.
-	feedScrollBottomNudge = 0.14
+	testNewsInterval = 5 * time.Second
+	// feedScrollPx moves each frame by a fraction of (targetPx - feedScrollPx); lambda scales with dt (~seconds^-1).
+	feedScrollLambda = 14.0
 )
 
 // Game is the root game state. Extend this struct with your systems and assets.
@@ -49,11 +48,17 @@ type Game struct {
 	lastW int
 	lastH int
 
-	// Auto-scroll target: ScrollTop in0..1; smoothed in Update toward this value.
+	// Normalized scroll goal 0..1; pixel offset feedScrollPx eases toward feedScrollTarget * extra.
 	feedScrollTarget float64
+	// Smoothed vertical content offset (px). Negative until first sync from the widget.
+	feedScrollPx float64
+	// Last time smoothFeedScroll ran (for dt); proportional step toward target each frame.
+	feedScrollLastSmooth time.Time
+	// Set when layout/text changed; requestFeedScrollBottom runs after ui.Update (PreferredSize is unsafe during Layout).
+	feedScrollNeedBottom bool
 
-	testNewsTimer  float64
 	testNewsSerial int
+	lastTestNews   time.Time
 }
 
 func loadFont(size float64) (text.Face, error) {
@@ -75,15 +80,14 @@ func wireFeedScrollWheel(g *Game) {
 		text := g.newsText
 		viewH := float64(scroll.ViewRect().Dy())
 		_, ch := text.PreferredSize()
-		if float64(ch) <= viewH {
+		extra := float64(ch) - viewH
+		if extra <= 0 {
 			return
 		}
-		page := int(math.Round(viewH / float64(ch) * 1000))
-		p := page / 3
-		if p < 1 {
-			p = 1
-		}
-		scroll.ScrollTop -= a.Y * float64(p) / 1000
+		// a.Y from ebiten; delta in normalized scroll = (pixels to move) / extra.
+		// One unit of a.Y with |a.Y|==1 scrolls by one viewport height of content.
+		delta := a.Y * viewH / extra
+		scroll.ScrollTop -= delta
 		if scroll.ScrollTop < 0 {
 			scroll.ScrollTop = 0
 		}
@@ -91,6 +95,7 @@ func wireFeedScrollWheel(g *Game) {
 			scroll.ScrollTop = 1
 		}
 		g.feedScrollTarget = scroll.ScrollTop
+		g.feedScrollPx = scroll.ScrollTop * extra
 	})
 }
 
@@ -141,7 +146,7 @@ func newGame() (*Game, error) {
 	)
 
 	newsText := widget.NewText(
-		widget.TextOpts.Text(sampleNews, &face, color.NRGBA{R: 0xe8, G: 0xea, B: 0xf0, A: 0xff}),
+		widget.TextOpts.Text(strings.Repeat(sampleNews, 10), &face, color.NRGBA{R: 0xe8, G: 0xea, B: 0xf0, A: 0xff}),
 		widget.TextOpts.MaxWidth(300),
 		widget.TextOpts.Padding(widget.NewInsetsSimple(8)),
 	)
@@ -181,6 +186,8 @@ func newGame() (*Game, error) {
 	}
 	g.feedScrollTarget = 1
 	g.feedScroll.ScrollTop = 1
+	g.feedScrollPx = -1
+	g.lastTestNews = time.Now()
 	wireFeedScrollWheel(g)
 	return g, nil
 }
@@ -234,44 +241,63 @@ func (g *Game) applyVerticalBands(outsideW, outsideH int) {
 	g.newsText.MaxWidth = mw
 
 	g.root.RequestRelayout()
-	g.requestFeedScrollBottom()
+	g.feedScrollNeedBottom = true
 }
 
 func (g *Game) requestFeedScrollBottom() {
 	g.feedScrollTarget = 1
+	if g.feedScroll == nil || g.newsText == nil {
+		return
+	}
+	_, ch := g.newsText.PreferredSize()
+	extra := float64(ch) - float64(g.feedScroll.ViewRect().Dy())
+	if extra > 0 && g.feedScrollPx < 0 {
+		g.feedScrollPx = g.feedScroll.ScrollTop * extra
+	}
 }
 
-// nudgeFeedScrollIfPinnedToBottom moves ScrollTop slightly up when already at the end so
-// smoothFeedScroll has a non-zero delta after content height increases (ScrollTop=1 and target=1 gives diff=0).
-func (g *Game) nudgeFeedScrollIfPinnedToBottom() {
-	const eps = 1e-3
-	if g.feedScroll == nil {
+// smoothFeedScroll moves feedScrollPx toward feedScrollTarget*extra by a fraction of the remaining gap each frame.
+func (g *Game) smoothFeedScroll() {
+	if g.feedScroll == nil || g.newsText == nil {
 		return
 	}
-	if g.feedScroll.ScrollTop < 1-eps || g.feedScrollTarget < 1-eps {
+	_, ch := g.newsText.PreferredSize()
+	extra := float64(ch) - float64(g.feedScroll.ViewRect().Dy())
+	if extra <= 0 {
+		g.feedScroll.ScrollTop = 0
+		g.feedScrollPx = 0
 		return
 	}
-	g.feedScroll.ScrollTop = math.Max(0, g.feedScroll.ScrollTop-feedScrollBottomNudge)
-}
 
-func (g *Game) smoothFeedScroll(dt float64) {
-	if g.feedScroll == nil {
-		return
+	targetPx := g.feedScrollTarget * extra
+	if g.feedScrollPx < 0 {
+		g.feedScrollPx = g.feedScroll.ScrollTop * extra
 	}
-	cur := g.feedScroll.ScrollTop
-	tgt := g.feedScrollTarget
-	diff := tgt - cur
-	if math.Abs(diff) < 1e-4 {
-		g.feedScroll.ScrollTop = tgt
-		return
+	if g.feedScrollPx > extra {
+		g.feedScrollPx = extra
 	}
-	alpha := 1 - math.Exp(-feedScrollSmoothPerSec*dt)
-	g.feedScroll.ScrollTop += diff * alpha
+
+	dt := time.Since(g.feedScrollLastSmooth).Seconds()
+	g.feedScrollLastSmooth = time.Now()
+	if dt <= 0 || dt > 0.2 {
+		dt = 1.0 / 60.0
+	}
+	k := 1 - math.Exp(-feedScrollLambda*dt)
+	diff := targetPx - g.feedScrollPx
+	if math.Abs(diff) < 0.25 {
+		g.feedScrollPx = targetPx
+	} else {
+		g.feedScrollPx += diff * k
+	}
+
+	g.feedScroll.ScrollTop = g.feedScrollPx / extra
 	if g.feedScroll.ScrollTop < 0 {
 		g.feedScroll.ScrollTop = 0
+		g.feedScrollPx = 0
 	}
 	if g.feedScroll.ScrollTop > 1 {
 		g.feedScroll.ScrollTop = 1
+		g.feedScrollPx = extra
 	}
 }
 
@@ -284,23 +310,21 @@ func (g *Game) pushTestNews() {
 	)
 	g.newsText.Label += line
 	g.root.RequestRelayout()
-	g.nudgeFeedScrollIfPinnedToBottom()
-	g.requestFeedScrollBottom()
+	g.feedScrollNeedBottom = true
 }
 
 func (g *Game) Update() error {
-	dt := 1.0 / 60.0
-	if tps := ebiten.ActualTPS(); tps > 0 {
-		dt = 1.0 / tps
-	}
-	g.testNewsTimer += dt
-	for g.testNewsTimer >= testNewsEverySecs {
-		g.testNewsTimer -= testNewsEverySecs
+	if time.Since(g.lastTestNews) >= testNewsInterval {
+		g.lastTestNews = time.Now()
 		g.pushTestNews()
 	}
 
 	g.ui.Update()
-	g.smoothFeedScroll(dt)
+	if g.feedScrollNeedBottom {
+		g.feedScrollNeedBottom = false
+		g.requestFeedScrollBottom()
+	}
+	g.smoothFeedScroll()
 	return nil
 }
 

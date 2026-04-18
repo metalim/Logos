@@ -31,6 +31,17 @@ const (
 	screenWidth  = 360
 	screenHeight = 640
 
+	// Vertical band proportions (integer percent of outsideH); bottom band fills the remainder.
+	// Top ≈ real phone status strip (iPhone ~5–6% of screen height).
+	bandTopPercent = 6
+	bandMidPercent = 60
+	// Pixels of root background showing between bands (RowLayout spacing).
+	bandSpacingPx = 1
+
+	// News text horizontal inset (px) inside the feed band; clamped to a sane minimum.
+	newsTextSideInset = 20
+	newsTextMinWidth  = 40
+
 	testNewsInterval = 5 * time.Second
 	// feedScrollPx moves each frame by a fraction of (targetPx - feedScrollPx); lambda scales with dt (~seconds^-1).
 	feedScrollLambda = 14.0
@@ -57,6 +68,7 @@ type Game struct {
 	mapPanel   *widget.Container
 	feedScroll *widget.ScrollContainer
 	newsText   *widget.Text
+	clockText  *widget.Text
 
 	lastW int
 	lastH int
@@ -109,55 +121,51 @@ func wireFeedScrollWheel(g *Game) {
 	})
 }
 
+// newBandContainer builds one of the three vertical bands: stretched to root width,
+// height filled by MinHeight written in applyVerticalBands, with the given inner layout and bg.
+func newBandContainer(bg color.NRGBA, inner widget.Layouter) *widget.Container {
+	return widget.NewContainer(
+		widget.ContainerOpts.Layout(inner),
+		widget.ContainerOpts.BackgroundImage(eimage.NewNineSliceColor(bg)),
+		widget.ContainerOpts.WidgetOpts(
+			widget.WidgetOpts.LayoutData(widget.RowLayoutData{Stretch: true}),
+			widget.WidgetOpts.MinSize(0, 1),
+		),
+	)
+}
+
 func newGame() (*Game, error) {
 	face, err := loadFont(14)
 	if err != nil {
 		return nil, err
 	}
 
+	// Root stacks the three bands top-to-bottom; per-band height comes from MinHeight set in
+	// applyVerticalBands, width is stretched via RowLayoutData on each child.
 	root := widget.NewContainer(
-		widget.ContainerOpts.Layout(widget.NewAnchorLayout()),
+		widget.ContainerOpts.Layout(widget.NewRowLayout(
+			widget.RowLayoutOpts.Direction(widget.DirectionVertical),
+			widget.RowLayoutOpts.Spacing(bandSpacingPx),
+		)),
 		widget.ContainerOpts.BackgroundImage(
 			eimage.NewNineSliceColor(color.NRGBA{R: 0x12, G: 0x12, B: 0x14, A: 0xff}),
 		),
 	)
 
-	statusBar := widget.NewContainer(
-		widget.ContainerOpts.Layout(widget.NewAnchorLayout()),
-		widget.ContainerOpts.BackgroundImage(
-			eimage.NewNineSliceColor(color.NRGBA{R: 0x22, G: 0x24, B: 0x2a, A: 0xff}),
-		),
-		widget.ContainerOpts.WidgetOpts(
-			widget.WidgetOpts.LayoutData(widget.AnchorLayoutData{
-				HorizontalPosition: widget.AnchorLayoutPositionStart,
-				VerticalPosition:   widget.AnchorLayoutPositionStart,
-				StretchHorizontal:  true,
-				StretchVertical:    false,
-			}),
-			widget.WidgetOpts.MinSize(0, 1),
+	statusBar := newBandContainer(
+		color.NRGBA{R: 0x0a, G: 0x0b, B: 0x0e, A: 0xff},
+		widget.NewAnchorLayout(
+			widget.AnchorLayoutOpts.Padding(&widget.Insets{Top: 2, Bottom: 2}),
 		),
 	)
-
-	mapPanel := widget.NewContainer(
-		widget.ContainerOpts.Layout(widget.NewAnchorLayout()),
-		widget.ContainerOpts.BackgroundImage(
-			eimage.NewNineSliceColor(color.NRGBA{R: 0x2c, G: 0x2e, B: 0x34, A: 0xff}),
-		),
-		widget.ContainerOpts.WidgetOpts(
-			widget.WidgetOpts.LayoutData(widget.AnchorLayoutData{
-				HorizontalPosition: widget.AnchorLayoutPositionStart,
-				VerticalPosition:   widget.AnchorLayoutPositionStart,
-				StretchHorizontal:  true,
-				StretchVertical:    false,
-				Padding:            &widget.Insets{Top: 1},
-			}),
-			widget.WidgetOpts.MinSize(0, 1),
-		),
+	mapPanel := newBandContainer(
+		color.NRGBA{R: 0x2c, G: 0x2e, B: 0x34, A: 0xff},
+		widget.NewAnchorLayout(),
 	)
 
 	newsText := widget.NewText(
 		widget.TextOpts.Text(strings.Repeat(sampleNews, 10), &face, color.NRGBA{R: 0xe8, G: 0xea, B: 0xf0, A: 0xff}),
-		widget.TextOpts.MaxWidth(300),
+		widget.TextOpts.MaxWidth(screenWidth-newsTextSideInset),
 		widget.TextOpts.Padding(widget.NewInsetsSimple(8)),
 	)
 
@@ -169,13 +177,7 @@ func newGame() (*Game, error) {
 			Mask: eimage.NewNineSliceColor(color.NRGBA{R: 0x18, G: 0x1a, B: 0x20, A: 0xff}),
 		}),
 		widget.ScrollContainerOpts.WidgetOpts(
-			widget.WidgetOpts.LayoutData(widget.AnchorLayoutData{
-				HorizontalPosition: widget.AnchorLayoutPositionStart,
-				VerticalPosition:   widget.AnchorLayoutPositionStart,
-				StretchHorizontal:  true,
-				StretchVertical:    true,
-				Padding:            &widget.Insets{Top: 1},
-			}),
+			widget.WidgetOpts.LayoutData(widget.RowLayoutData{Stretch: true}),
 			widget.WidgetOpts.MinSize(0, 1),
 		),
 	)
@@ -198,6 +200,7 @@ func newGame() (*Game, error) {
 	g.feedScroll.ScrollTop = 1
 	g.feedScrollPx = -1
 	g.lastTestNews = time.Now()
+	g.clockText = populatePhoneTitleBar(statusBar, face)
 	wireFeedScrollWheel(g)
 	return g, nil
 }
@@ -211,42 +214,17 @@ func (g *Game) applyVerticalBands(outsideW, outsideH int) {
 		return
 	}
 
-	h1 := outsideH * 10 / 100
-	h2 := outsideH * 60 / 100
-	h3 := outsideH - h1 - h2
+	h1 := outsideH * bandTopPercent / 100
+	h2 := outsideH * bandMidPercent / 100
+	h3 := outsideH - h1 - h2 - 2*bandSpacingPx
 
-	st := g.statusBar.GetWidget()
-	st.LayoutData = widget.AnchorLayoutData{
-		HorizontalPosition: widget.AnchorLayoutPositionStart,
-		VerticalPosition:   widget.AnchorLayoutPositionStart,
-		StretchHorizontal:  true,
-		StretchVertical:    false,
-	}
-	st.MinHeight = h1
+	g.statusBar.GetWidget().MinHeight = h1
+	g.mapPanel.GetWidget().MinHeight = h2
+	g.feedScroll.GetWidget().MinHeight = h3
 
-	mp := g.mapPanel.GetWidget()
-	mp.LayoutData = widget.AnchorLayoutData{
-		HorizontalPosition: widget.AnchorLayoutPositionStart,
-		VerticalPosition:   widget.AnchorLayoutPositionStart,
-		StretchHorizontal:  true,
-		StretchVertical:    false,
-		Padding:            &widget.Insets{Top: h1},
-	}
-	mp.MinHeight = h2
-
-	fs := g.feedScroll.GetWidget()
-	fs.LayoutData = widget.AnchorLayoutData{
-		HorizontalPosition: widget.AnchorLayoutPositionStart,
-		VerticalPosition:   widget.AnchorLayoutPositionStart,
-		StretchHorizontal:  true,
-		StretchVertical:    true,
-		Padding:            &widget.Insets{Top: h1 + h2},
-	}
-	fs.MinHeight = h3
-
-	mw := float64(outsideW - 20)
-	if mw < 40 {
-		mw = 40
+	mw := float64(outsideW - newsTextSideInset)
+	if mw < newsTextMinWidth {
+		mw = newsTextMinWidth
 	}
 	g.newsText.MaxWidth = mw
 
@@ -337,6 +315,8 @@ func (g *Game) Update() error {
 		g.lastTestNews = time.Now()
 		g.pushTestNews()
 	}
+
+	updateClock(g.clockText)
 
 	g.ui.Update()
 	if g.feedScrollNeedBottom {

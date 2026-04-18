@@ -21,16 +21,25 @@ Narrative design, lore, and target gameplay loop live in [CONCEPT.md](CONCEPT.md
 
 ## UI layout (vertical bands)
 
-Percents are integer fractions of the **outside** height passed into `applyVerticalBands`.
+Percents are constants (`bandTopPercent = 6`, `bandMidPercent = 60`); bottom band fills the remainder. Top band tracks a real phone status strip (iPhone is ~5–6% of screen height). Heights are written as `MinHeight` on each band by `applyVerticalBands`.
 
 | Band | Role | Min height |
 |------|------|------------|
-| Top 10% | Status bar (placeholder container) | `outsideH * 10 / 100` |
-| Middle 60% | Map panel (placeholder container) | `outsideH * 60 / 100` |
-| Bottom remainder (~30%) | News feed (`ScrollContainer` + `Text`) | `outsideH - h1 - h2` |
+| Top `bandTopPercent`% | Phone-style title bar (clock + signal + battery) | `outsideH * bandTopPercent / 100` |
+| Middle `bandMidPercent`% | Map panel (placeholder container) | `outsideH * bandMidPercent / 100` |
+| Bottom remainder | News feed (`ScrollContainer` + `Text`) | `outsideH - h1 - h2 - 2*bandSpacingPx` |
 
-- **Anchor layout** on root: bands are stacked using `AnchorLayoutData` + top padding so the feed fills the lower strip.
-- **News `Text`:** `MaxWidth = outsideW - 20`, clamped to at least 40 px.
+- **Root layout:** vertical `RowLayout` with `Spacing(bandSpacingPx)` (1 px gap shows the dark root background between bands). Each band carries `RowLayoutData{Stretch: true}` + `MinSize(0, 1)`; real height is set later by `applyVerticalBands`. Helper `newBandContainer(bg, innerLayout)` removes the per-band `WidgetOpts` boilerplate.
+- **News `Text`:** `MaxWidth = outsideW - newsTextSideInset` (20 px), clamped to `newsTextMinWidth` (40 px).
+
+## Phone title bar
+
+- **Container:** the top band (`statusBar`) uses `AnchorLayout` with 2 px vertical padding and a near-black background, mimicking a phone status strip.
+- **Left:** `widget.Text` (`clockText`) anchored start/center, `15:04` 24-hour format, refreshed every frame in `Update` via `updateClock` (no-op if label unchanged).
+- **Right:** `widget.Container` with `RowLayout` (horizontal, spacing 6, right padding 8), holding two `widget.Graphic`s built once with `vector.DrawFilledRect` / `StrokeRect`:
+  - **Signal:** `signalBarCount = 4` ascending bars (`signalBarW = 3`, gap 2, base 4 px, step 3 px). Filled bars use `titleBarFG`, missing bars use `titleBarDimFG`.
+  - **Battery:** outlined body (`22×10`) with `2×4` tip on the right; inside, `batterySegments = 4` filled cells (`batterySegInset = 2`, `batterySegInterval = 1`).
+- Game-state header (infection %, patches, timer per CONCEPT) is **not** in this bar — it will be a separate band added later.
 
 ## News feed widget
 
@@ -126,7 +135,7 @@ Implemented in `feed_drag.go`, called from `Update` between `requestFeedScrollBo
 
 | CONCEPT | Code today |
 |---------|------------|
-| Status bar content (time, infection, patches) | Empty styled container |
+| Status bar (time + game stats) | Phone strip (clock + signal + battery); game stats deferred to a separate header |
 | Interactive node map | Empty styled container |
 | Core loop (attack / patch / fail) | Not implemented |
 | News as consequence stream | Placeholder + test ticker |
@@ -136,6 +145,7 @@ Implemented in `feed_drag.go`, called from `Update` between `requestFeedScrollBo
 | Path | Role |
 |------|------|
 | `main.go` | Game struct, UI tree, bands, feed scroll, test news |
+| `titlebar.go` | Phone-style title bar (clock + signal + battery icons via `vector`) |
 | `feed_drag.go` | Touch / left-mouse drag-to-scroll for the news feed |
 | `wheel_native.go` | `feedWheelContentPixelsPerUnit = 18.0` (build tag `!js`) |
 | `wheel_js.go` | `feedWheelContentPixelsPerUnit = 1.0` (build tag `js`) |

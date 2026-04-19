@@ -339,10 +339,13 @@ func (g *Game) drawNodeMap(screen *ebiten.Image) {
 		vector.StrokeLine(screen, x1, y1, x2, y2, edgeStrokeW, edgeColor, true)
 	}
 
+	frozen := g.gameLost()
 	for _, n := range g.nodes {
 		x, y := pos(n)
 		fill, stroke := nodeColors(n.State)
-		if n.State == NodeStateAttack {
+		// Freeze the attack pulse on game over: the node stays at full alpha so the
+		// player sees the world halt mid-tick rather than continuing to wink at them.
+		if n.State == NodeStateAttack && !frozen {
 			fill = scaleAlpha(fill, attackBlinkAlpha(time.Since(g.epoch)))
 		}
 		vector.FillCircle(screen, x, y, nodeRadius, fill, true)
@@ -433,7 +436,7 @@ func (g *Game) nodeScreenPos(i int) (cx, cy float32, ok bool) {
 //
 // No menu opens (and no action runs) while the player has zero patches.
 func (g *Game) handlePatchClick() {
-	if g.mapPanel == nil {
+	if g.mapPanel == nil || g.gameLost() {
 		return
 	}
 	if g.pendingPatchNode >= 0 {

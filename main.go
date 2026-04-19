@@ -126,6 +126,14 @@ type Game struct {
 	feedDragTouchID ebiten.TouchID
 	feedDragStartY  int
 	feedDragStartPx float64
+
+	// Game-over latch. Set by checkGameOver when infection first crosses 100%; gates the
+	// attack/infection/production sims and the attack-pulse animation. lossLine is picked
+	// once at latch time so re-runs of checkGameOver don't reroll the text mid-stream.
+	lostAt         time.Time
+	lossLine       string
+	lossLinePushed bool
+	gameOverPushed bool
 }
 
 func loadFont(size float64) (text.Face, error) {
@@ -375,16 +383,23 @@ func (g *Game) pushNews(line string) {
 }
 
 func (g *Game) Update() error {
-	if time.Since(g.lastAttackAt) >= attackInterval {
-		g.lastAttackAt = time.Now()
-		g.attackTick()
-	}
-	g.progressAttacks()
+	g.checkGameOver()
+
 	now := time.Now()
 	dt := now.Sub(g.lastSimTick)
 	g.lastSimTick = now
-	g.accumulateInfection(dt)
-	g.accumulateProduction(dt)
+
+	if !g.gameLost() {
+		if time.Since(g.lastAttackAt) >= attackInterval {
+			g.lastAttackAt = time.Now()
+			g.attackTick()
+		}
+		g.progressAttacks()
+		g.accumulateInfection(dt)
+		g.accumulateProduction(dt)
+	}
+	// easeNodes always runs so any in-flight migrate-inward animation finishes cleanly
+	// even after the loss latch — frozen sim, but no jarring half-moved nodes.
 	g.easeNodes(dt)
 
 	updateClock(g.clockText)

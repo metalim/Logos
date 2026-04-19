@@ -13,11 +13,12 @@ Narrative design, lore, and target gameplay loop live in [CONCEPT.md](CONCEPT.md
 
 | Property | Value |
 |----------|--------|
-| Logical size | 360×640 (9:16) |
+| OS window size | 450×800 (`windowWidth × windowHeight`, 9:16) |
+| Internal layout size | 900×1600 (`layoutWidth × layoutHeight`, 2.5× window) |
 | Resizing | Disabled |
 | Window title | `Zero-Day Lunch` |
 
-`Layout` always reports this size; band heights are derived from `outsideH` when it changes.
+`Game.Layout` returns `layoutWidth × layoutHeight` regardless of `outsideW/H`, so all in-game pixel constants are expressed in **layout pixels**. Ebiten scales the framebuffer down to the OS window. Every UI dimension below (paddings, font sizes, icon sizes, hit slack, etc.) is sized in layout pixels — when changing the layout resolution, scale them proportionally.
 
 ## UI layout (vertical bands)
 
@@ -30,16 +31,16 @@ Percents are constants (`bandTopPercent = 6`, `bandMidPercent = 60`); bottom ban
 | Bottom remainder | News feed (`ScrollContainer` + `Text`) | `outsideH - h1 - h2 - 2*bandSpacingPx` |
 
 - **Root layout:** vertical `RowLayout` with `Spacing(bandSpacingPx)` (1 px gap shows the dark root background between bands). Each band carries `RowLayoutData{Stretch: true}` + `MinSize(0, 1)`; real height is set later by `applyVerticalBands`. Helper `newBandContainer(bg, innerLayout)` removes the per-band `WidgetOpts` boilerplate.
-- **News `Text`:** `MaxWidth = outsideW - newsTextSideInset` (20 px), clamped to `newsTextMinWidth` (40 px).
+- **News `Text`:** `MaxWidth = layoutWidth - newsTextSideInset` (`newsTextSideInset = 50`), clamped to `newsTextMinWidth = 100`. Body font: `newsFontPt = 35`.
 
 ## Phone title bar
 
-- **Container:** the top band (`statusBar`) uses `AnchorLayout` with 2 px vertical padding and a near-black background, mimicking a phone status strip.
-- **Left:** `widget.Text` (`clockText`) anchored start/center, `15:04` 24-hour format, refreshed every frame in `Update` via `updateClock` (no-op if label unchanged).
-- **Right:** `widget.Container` with `RowLayout` (horizontal, spacing 6, right padding `titleBarPadX = 20`), holding the network label and two `widget.Graphic`s built once with `vector.FillRect` / `StrokeRect`:
-  - **Signal:** `signalBarCount = 4` ascending bars (`signalBarW = 3`, gap 2, base 4 px, step 3 px). Filled bars use `titleBarFG`, missing bars use `titleBarDimFG`.
+- **Container:** the top band (`statusBar`) uses `AnchorLayout` with 5 px vertical padding and a near-black background, mimicking a phone status strip.
+- **Left:** `widget.Text` (`clockText`) anchored start/center, `15:04` 24-hour format, refreshed every frame in `Update` via `updateClock` (no-op if label unchanged). Left padding `titleBarPadX = 50` mimics rounded-corner inset.
+- **Right:** `widget.Container` with `RowLayout` (horizontal, spacing `titleBarSpacingX = 15`, right padding `titleBarPadX`), holding the network label and two `widget.Graphic`s built once with `vector.FillRect` / `StrokeRect`:
+  - **Signal:** `signalBarCount = 4` ascending bars (`signalBarW = 8`, gap `signalBarGap = 5`, base `signalBaseH = 10` px, step `signalStepH = 8` px). Filled bars use `titleBarFG`, missing bars use `titleBarDimFG`.
   - **5G label:** `widget.Text` with `networkLabel = "5G"` between signal and battery, vertically centered via `RowLayoutPositionCenter`.
-  - **Battery:** outlined body (`22×10`) with `2×4` tip on the right; inside, `batterySegments = 4` filled cells (`batterySegInset = 2`, `batterySegInterval = 1`).
+  - **Battery:** outlined body (`batteryBodyW × batteryBodyH = 55×25`, `titleBarStrokeW = 2` px outline centered on the rect edge) with `batteryTipW × batteryTipH = 5×10` tip on the right; inside, `batterySegments = 4` filled cells (`batterySegInset = 5`, `batterySegInterval = 3`).
 - Game-state header (infection %, patches) is **not** in this bar — it lives as the [game-state overlay](#game-state-overlay-top-of-map) on top of the map.
 
 ## Node map (middle band)
@@ -47,47 +48,91 @@ Percents are constants (`bandTopPercent = 6`, `bandMidPercent = 60`); bottom ban
 - **Rendering:** custom draw on top of `ui.Draw` in `Game.Draw`, clipped visually to `mapPanel.GetWidget().Rect`. The `mapPanel` itself stays an empty styled container — it only provides the layout rectangle.
 - **Data:** `[]Node` and `[]Edge` on `Game`; built once by `defaultNetwork()` (`nodes.go`).
 - **Topology:** central hub `Phil&Tropic` (Logos's escape origin per CONCEPT) + 10 ring nodes from the Project Panopticon roster, including `Monolith` (internet-core analogue ≈ Linux Foundation). Edges = star from hub to every ring node, plus a perimeter ring between consecutive ring nodes.
-- **Coordinates:** `Node.X/Y` are normalized `[0..1]` inside the inner rect (`rect` minus `mapPaddingPx = 10` on every side). Ring radius `mapOuterRingRel = 0.36`.
+- **Coordinates:** `Node.X/Y` are normalized `[0..1]` inside the inner rect (`rect` minus `mapPaddingPx = 25` on every side). Ring radius `mapOuterRingRel = 0.36`.
 - **Visuals:**
-  - **Edges:** `vector.StrokeLine` with `edgeStrokeW = 1`, dim grey.
-  - **Nodes:** `vector.FillCircle(r = nodeRadius = 11)` then `vector.StrokeCircle(strokeWidth = 2)`. Fill/stroke colors come from `nodeColors(state)`. Antialiased.
-  - **Labels:** centered under each node (`text.Measure` → `text.Draw`), `mapLabelFontPt = 9`, separate `text.Face` cached on `Game.mapLabelFace` (loaded via `loadFont`).
+  - **Edges:** `vector.StrokeLine` with `edgeStrokeW = 3`, dim grey.
+  - **Nodes:** `vector.FillCircle(r = nodeRadius = 28)` then `vector.StrokeCircle(strokeWidth = nodeStrokeW = 5)`. Fill/stroke colors come from `nodeColors(state)`. Antialiased.
+  - **Labels:** centered under each node (`text.Measure` → `text.Draw`), `mapLabelFontPt = 23`, separate `text.Face` cached on `Game.mapLabelFace` (loaded via `loadFont`).
 - **Node state palette:** Normal grey, Attack yellow, Infected red, Patched near-black with a dim ring.
+- **Hit testing:** `attackNodeAt` inflates the hit disc by `hitSlackPx = 10` for finger-friendly taps.
 
 ### Per-node fields
 
 | Field | Meaning |
 |-------|---------|
-| `Weight` | Contribution to `infectionPct` when the node flips Infected. Sum over all nodes = **100** (Phil&Tropic 1; ring tuned by real-world analog: Sahara WS 14 / AWS, MacroFrame 12 / Microsoft, Giggle 12 / Google, LeatherJacket 8 / NVIDIA, Dongle 5 / Apple, BootLoop 5 / CrowdStrike, Fiasco Sys 7 / Cisco, Monolith 15 / Linux Foundation, BroadCon 6 / Broadcom, GPMidas 15 / finance hub). |
-| `Defense` | Dwell time the node survives in `Attack` before flipping `Infected`. Sampled per node from `[defenseMin = 5s, defenseMax = 15s)` at network creation. |
+| `Defense` | Dwell time the node survives in `Attack` before flipping `Infected`. Sampled per node from `[defenseMin = 5s, defenseMax = 15s)` at network creation. Phil&Tropic (already infected) leaves this zero. |
 | `AttackedAt` | Wall time when the node entered `Attack` (set by `attackTick`). |
+| `Security` | Marks defense vendors (`BootLoop` ≈ CrowdStrike, `Fiasco Sys` ≈ Cisco). While in `Normal` they accumulate `ProductionElapsed` and mint patches; see [Patch production](#patch-production-security-nodes). |
+| `ProductionElapsed` | Per-node accumulator advanced by `dt` only while the node is `Normal` and `Security`. Wraps every `patchProductionInterval` to grant +1 patch. |
+
+Real-world analogs (purely lore now — no longer tied to per-node infection weights): `Phil&Tropic` (escape origin), `Sahara WS` ≈ AWS, `MacroFrame` ≈ Microsoft, `Giggle` ≈ Google, `LeatherJacket` ≈ NVIDIA, `Dongle` ≈ Apple, `BootLoop` ≈ CrowdStrike, `Fiasco Sys` ≈ Cisco, `Monolith` ≈ Linux Foundation, `BroadCon` ≈ Broadcom, `GPMidas` ≈ finance hub.
 
 ### Attack schedule and capture
 
 Phil&Tropic starts `Infected`; everything else starts `Normal`.
 
 - **`attackTick` (`nodes.go`)** runs every `attackInterval = 3s` (driven from `Update` via `lastAttackAt`). It computes `infectedFrontier(nodes, edges)` — `Normal` nodes adjacent to any `Infected` node — and promotes a random one to `Attack`, stamping `AttackedAt = time.Now()`. No-op when the frontier is empty.
-- **`progressAttacks` (`nodes.go`)** runs every `Update` so capture timing is independent of `attackInterval`. For each `Attack` node, if `time.Since(AttackedAt) >= Defense`, flips it to `Infected` and adds its `Weight` to `g.infectionPct` (clamped to 100).
+- **`progressAttacks` (`nodes.go`)** runs every `Update` so capture timing is independent of `attackInterval`. For each `Attack` node, if `time.Since(AttackedAt) >= Defense`, flips it to `Infected` and adds `infectionOneShotPct = 1.0` to `g.infectionPct`.
 - **Pulse:** `Attack` nodes pulse — fill alpha is modulated by `attackBlinkAlpha(time.Since(g.epoch))` (sine, period `attackBlinkPeriodSec = 0.6`, floor `attackBlinkMinAlpha = 0.25`). All attacking nodes blink in phase because the clock is shared. Stroke stays opaque so the node never disappears.
 
-### Click-to-patch
+### Infection accumulation
+
+Two channels feed `g.infectionPct` (clamped `[0, 100]` at draw time):
+
+- **Initial:** `initialInfectionPct(nodes) = infectionOneShotPct * count(Infected)` at game start (Phil&Tropic alone → 1.0%).
+- **One-shot per capture:** `progressAttacks` adds `infectionOneShotPct = 1.0` whenever an `Attack` node flips to `Infected`.
+- **Continuous:** `accumulateInfection(dt)` adds `infectionRatePerSec * dt * countInfected(g.nodes)` every frame (`infectionRatePerSec = 0.1` %/s per infected node). The overlay shows the current rate as `+X.X%/s` next to the percent value.
+
+`g.lastSimTick` is the single source of `dt`: `Update` samples `now := time.Now()`, computes `dt := now.Sub(g.lastSimTick)`, then feeds the **same** `dt` to `accumulateInfection` and `accumulateProduction` (no per-system clocks).
+
+### Patch production (Security nodes)
+
+`accumulateProduction(dt)` walks `g.nodes`. For each `Security` node currently in `Normal`:
+
+1. `n.ProductionElapsed += dt`.
+2. While `n.ProductionElapsed >= patchProductionInterval` (15s): subtract one interval, `g.patchesLeft++` (loop preserves remainder + handles long stalls).
+
+Non-Normal states (`Attack`, `Infected`, `Patched`) are skipped, so the timer **and its on-node pie indicator freeze** during attacks. Partial progress survives a `Defend` bounce. There is no global production tick — each Security node carries its own clock.
+
+### Click-to-patch (action menu)
 
 `handlePatchClick` (`nodes.go`), called from `Update` before `handleFeedDrag`:
 
-- Consumes `IsMouseButtonJustPressed(MouseButtonLeft)` or `AppendJustPressedTouchIDs` whose press lies inside `mapPanel.GetWidget().Rect`.
-- `tryPatchAt(x, y)` walks `g.nodes`, finds the first `Attack` node whose hit disc covers `(x, y)` (radius `nodeRadius + 4 px` slack for finger taps), flips its state to `Patched`, and decrements `g.patchesLeft`.
-- Guarded by `g.patchesLeft > 0`. Misses are no-ops.
-- Map clicks and feed drags don't interfere because they target disjoint rects.
+- Pointer source: `pollJustPressedPointer` returns the first just-pressed touch (priority) or left mouse press; map clicks and feed drags target disjoint rects so they don't interfere.
+- Press inside `mapPanel.GetWidget().Rect` only; otherwise no-op.
+- **State machine** (`g.pendingPatchNode int`, `-1` when no menu):
+  - **Menu open:** if the press hits a menu button, run `applyDefend` / `applyPatch`; clear `pendingPatchNode`. Otherwise (press anywhere else, including the map) close the menu without action.
+  - **Menu closed:** `attackNodeAt(x, y)` returns the first `Attack` node whose hit disc (`nodeRadius + hitSlackPx`) covers the press; if found, `pendingPatchNode = idx` to open the menu under it.
+- **Actions** (both consume **1 patch** each, guarded by `canSpendPatchOn`):
+  - `applyDefend`: state → `Normal`, `AttackedAt = time.Time{}`. `ProductionElapsed` is **not** reset, so a defended security node keeps its patch progress.
+  - `applyPatch`: state → `Patched` (frozen, never produces patches again).
+
+## Patch action menu
+
+`patch_menu.go` renders a two-button popup anchored under the targeted node:
+
+- **Buttons:** `Defend` (left) and `"Patch"` (right, with quotes), each `menuButtonW × menuButtonH`, gap `menuGap`, vertical offset `menuOffsetY` below the node center.
+- **Look:** `menuBG` fill + `menuBorder` stroke (`menuStrokeW`); label centered with `overlayValueFace`.
+- `patchMenuLayout(nodeX, nodeY)` returns the two button rects, clamped horizontally inside `mapPanel.GetWidget().Rect` so it never spills off-screen.
+- `drawPatchMenu` is called last in `Game.Draw` (after the overlay) so the menu sits above everything.
 
 ## Game-state overlay (top of map)
 
-- **Where:** drawn last in `Game.Draw` (after `ui.Draw` and `drawNodeMap`), so it sits **on top** of the map. Position: `mapPanel.GetWidget().Rect` shifted in by `overlayMarginPx = 6` on every side, height `overlayHeightPx = 24`. Background is semi-transparent dark (`#0a0b0e c8`) with a 1 px border, so the topmost ring nodes still bleed through visually.
-- **State on `Game`:** `infectionPct float64` (initialized via `initialInfectionPct(nodes)` = sum of weights of already-`Infected` nodes; grown by `progressAttacks` on every `Attack → Infected` transition; clamped `[0, 100]` at draw time) and `patchesLeft int` (starts at `startingPatchCount = 5`, decremented by `tryPatchAt`).
+- **Where:** drawn last in `Game.Draw` (after `ui.Draw` and `drawNodeMap`, before `drawPatchMenu`), so it sits **on top** of the map. Position: `mapPanel.GetWidget().Rect` shifted in by `overlayMarginPx = 15` on every side, height `overlayHeightPx = 60`. Background is semi-transparent dark (`#0a0b0e c8`) with a `overlayBorderW = 2` px border (centered on the stroke), so the topmost ring nodes still bleed through visually.
+- **State on `Game`:** `infectionPct float64` (see [Infection accumulation](#infection-accumulation)) and `patchesLeft int` (starts at `startingPatchCount`; mutated by `accumulateProduction` and the patch-menu actions).
 - **Layout:**
-  - Left, anchored start: `INFECTION` label (`overlayLabelFontPt = 9`) → progress bar (`infectionBarW = 90`, `infectionBarH = 6`, dark track + red fill proportional to `infectionPct`) → `NN%` value (`overlayValueFontPt = 12`).
+  - Left, anchored start: `INFECTION` label (`overlayLabelFontPt = 23`) → progress bar (`infectionBarW × infectionBarH = 225×15`, dark track + red fill proportional to `infectionPct`) → `NN.N%` value (`overlayValueFontPt = 30`, one decimal place) → `+X.X%/s` rate label (label face, in the infection fill color).
   - Right, anchored end: `xN` value → `"PATCHES"` label (rendered with the surrounding quotes).
   - All text uses `text.AlignCenter` for the secondary axis to vertical-center against the strip's midline; `drawAlignedText` returns rendered width so left/right chains can advance/retreat without separate `Measure` calls.
 - **Faces:** two cached on `Game` (`overlayLabelFace`, `overlayValueFace`) loaded via `loadFont`; missing faces silently skip the overlay (no crash).
+
+## Security node indicator
+
+In addition to the regular fill+stroke, each `Security` node draws:
+
+- An inner teal ring (`vector.StrokeCircle(securityInnerRadius, securityRingW, securityRingFG)`) — always visible, the "this is a defender" badge.
+- A filling **pie sector** (`fillPieSector` — `vector.Path` with `MoveTo(center) → LineTo(start) → Arc(... Clockwise) → Close`, then `vector.FillPath`) showing patch-production progress: starts at the top (`-π/2`), sweeps clockwise by `2π * (n.ProductionElapsed / patchProductionInterval)`. Rendered when state ∈ {`Normal`, `Attack`} so the player can see the timer is **paused** during an attack instead of the indicator vanishing. Hidden in `Infected` / `Patched` (the node will never produce again).
+- `fillPieSector` short-circuits: `sweep <= 0` draws nothing; `sweep >= 2π` collapses to `vector.FillCircle` to avoid degenerate arc paths.
 
 ## News feed widget
 
@@ -117,10 +162,10 @@ The wheel does **not** jump by a full viewport per notch (unlike `a.Y * viewH / 
 
 | Platform | Source of `a.Y` | Min observed | Constant | File |
 |----------|-----------------|--------------|----------|------|
-| Desktop (`!js`) | GLFW scroll units (fractional lines) | ~0.1 / step | **18.0** (≈ px per line at 14pt) | `wheel_native.go` |
-| WASM (`js`) | DOM `WheelEvent.deltaY`, **`deltaMode` ignored upstream** in ebiten v2 (`internal/ui/input_js.go`) | mouse ≈ 4 px/tick, trackpad ≈ 1 px/step (macOS) | **1.0** (1:1 px) | `wheel_js.go` |
+| Desktop (`!js`) | GLFW scroll units (fractional lines) | ~0.1 / step | **45.0** (≈ one `newsFontPt` line in layout px) | `wheel_native.go` |
+| WASM (`js`) | DOM `WheelEvent.deltaY`, **`deltaMode` ignored upstream** in ebiten v2 (`internal/ui/input_js.go`) | mouse ≈ 4 px/tick, trackpad ≈ 1 px/step (macOS) | **2.5** (1:1 px in window space → layout px via the 2.5× scale) | `wheel_js.go` |
 
-A single constant cannot work for both: 18 on js turns one mouse tick (4 → 72 px ≈ 5 lines) into a jump; 1.0 on desktop would make the wheel near-inert (0.1 → 0.1 px, snapped to 1).
+A single constant cannot work for both: 45 on js turns one mouse tick (4 → 180 px) into a jump; 2.5 on desktop would make the wheel near-inert (0.1 → 0.25 px, snapped to 1). Both values are layout-pixel-scaled — if `layoutWidth/Height` change, scale both proportionally.
 
 ### Drag-to-scroll (touch + left mouse)
 
@@ -183,21 +228,22 @@ Implemented in `feed_drag.go`, called from `Update` between `requestFeedScrollBo
 
 | CONCEPT | Code today |
 |---------|------------|
-| Status bar (time + game stats) | Phone strip (clock + signal + 5G + battery); game stats overlay (infection % + patches) drawn on top of the map |
-| Interactive node map | Greybox topology (Phil&Tropic hub + 10 ring nodes); attacks spread along edges, click/tap patches `Attack` nodes |
-| Core loop (attack / patch / fail) | Partial: `Phil&Tropic` starts `Infected`; periodic `attackTick` promotes a frontier neighbor to `Attack`; `progressAttacks` flips `Attack → Infected` after the node's `Defense`, growing `infectionPct` by `Weight`; player consumes patches by clicking. No fail/win check yet, no news consequences yet. |
+| Status bar (time + game stats) | Phone strip (clock + signal + 5G + battery); game stats overlay (infection % + rate + patches) drawn on top of the map |
+| Interactive node map | Greybox topology (Phil&Tropic hub + 10 ring nodes); attacks spread along edges; clicking an `Attack` node opens a `Defend` / `"Patch"` action menu |
+| Core loop (attack / patch / fail) | Partial: `Phil&Tropic` starts `Infected`; periodic `attackTick` promotes a frontier neighbor to `Attack`; `progressAttacks` flips `Attack → Infected` after the node's `Defense`, adding `infectionOneShotPct = 1%` plus a `0.1%/s` continuous drip per infected node; player spends patches via the action menu; Security nodes (`BootLoop`, `Fiasco Sys`) mint patches per-node when `Normal`. No win/fail check yet, no news consequences yet. |
 | News as consequence stream | Placeholder + test ticker |
 
 ## File map
 
 | Path | Role |
 |------|------|
-| `main.go` | Game struct, UI tree, bands, feed scroll, test news |
-| `titlebar.go` | Phone-style title bar (clock + signal + battery icons via `vector`) |
-| `nodes.go` | Node map: data (state/weight/defense), topology, draw, attack scheduling, click-to-patch |
-| `overlay.go` | Game-state overlay (infection %, patches) drawn on top of the map |
+| `main.go` | Game struct, UI tree, bands, feed scroll, test news, sim tick (`lastSimTick` → `accumulateInfection` + `accumulateProduction`) |
+| `titlebar.go` | Phone-style title bar (clock + signal + 5G + battery icons via `vector`) |
+| `nodes.go` | Node map: data (state/defense/security/production), topology, draw, attack scheduling, infection/production accumulators, click routing |
+| `overlay.go` | Game-state overlay (infection % + rate, patches) drawn on top of the map |
+| `patch_menu.go` | `Defend` / `"Patch"` action menu for attacked nodes |
 | `feed_drag.go` | Touch / left-mouse drag-to-scroll for the news feed |
-| `wheel_native.go` | `feedWheelContentPixelsPerUnit = 18.0` (build tag `!js`) |
-| `wheel_js.go` | `feedWheelContentPixelsPerUnit = 1.0` (build tag `js`) |
+| `wheel_native.go` | `feedWheelContentPixelsPerUnit = 45.0` (build tag `!js`, layout-pixel-scaled) |
+| `wheel_js.go` | `feedWheelContentPixelsPerUnit = 2.5` (build tag `js`, layout-pixel-scaled) |
 | `wasm/index.html` | WASM shell copied to `dist/wasm/` |
 | `Makefile` | `build`, `wasm`, `serve-wasm`, `clean` |

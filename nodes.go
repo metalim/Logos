@@ -43,6 +43,9 @@ const (
 	// Visual badge for Security nodes: inner concentric ring drawn over the state fill.
 	securityInnerRadius = 13
 	securityRingW       = 3
+	// Production-progress marker that travels around the security ring; angle =
+	// elapsed/patchProductionInterval * 360° (starting at 12 o'clock, clockwise).
+	securityProgressDotR = 4
 )
 
 // NodeState mirrors the four states from CONCEPT (Норма / Атака / Заражен / Пропатчен).
@@ -75,17 +78,18 @@ type Node struct {
 type Edge struct{ From, To int }
 
 var (
-	nodeFillNormal   = color.NRGBA{R: 0x6e, G: 0x70, B: 0x76, A: 0xff}
-	nodeStrokeNormal = color.NRGBA{R: 0xb8, G: 0xba, B: 0xc0, A: 0xff}
-	nodeFillAttack   = color.NRGBA{R: 0xe6, G: 0xc8, B: 0x3a, A: 0xff}
-	nodeStrokeAttack = color.NRGBA{R: 0xff, G: 0xe8, B: 0x70, A: 0xff}
-	nodeFillInfected = color.NRGBA{R: 0xc0, G: 0x30, B: 0x30, A: 0xff}
-	nodeStrokeInfect = color.NRGBA{R: 0xff, G: 0x60, B: 0x60, A: 0xff}
-	nodeFillPatched  = color.NRGBA{R: 0x10, G: 0x10, B: 0x12, A: 0xff}
-	nodeStrokePatch  = color.NRGBA{R: 0x55, G: 0x55, B: 0x5a, A: 0xff}
-	edgeColor        = color.NRGBA{R: 0x40, G: 0x42, B: 0x48, A: 0xff}
-	labelColor       = color.NRGBA{R: 0xc8, G: 0xca, B: 0xd0, A: 0xff}
-	securityRingFG   = color.NRGBA{R: 0x40, G: 0xc8, B: 0xc0, A: 0xff}
+	nodeFillNormal     = color.NRGBA{R: 0x6e, G: 0x70, B: 0x76, A: 0xff}
+	nodeStrokeNormal   = color.NRGBA{R: 0xb8, G: 0xba, B: 0xc0, A: 0xff}
+	nodeFillAttack     = color.NRGBA{R: 0xe6, G: 0xc8, B: 0x3a, A: 0xff}
+	nodeStrokeAttack   = color.NRGBA{R: 0xff, G: 0xe8, B: 0x70, A: 0xff}
+	nodeFillInfected   = color.NRGBA{R: 0xc0, G: 0x30, B: 0x30, A: 0xff}
+	nodeStrokeInfect   = color.NRGBA{R: 0xff, G: 0x60, B: 0x60, A: 0xff}
+	nodeFillPatched    = color.NRGBA{R: 0x10, G: 0x10, B: 0x12, A: 0xff}
+	nodeStrokePatch    = color.NRGBA{R: 0x55, G: 0x55, B: 0x5a, A: 0xff}
+	edgeColor          = color.NRGBA{R: 0x40, G: 0x42, B: 0x48, A: 0xff}
+	labelColor         = color.NRGBA{R: 0xc8, G: 0xca, B: 0xd0, A: 0xff}
+	securityRingFG     = color.NRGBA{R: 0x40, G: 0xc8, B: 0xc0, A: 0xff}
+	securityProgressFG = color.NRGBA{R: 0xa8, G: 0xff, B: 0xf0, A: 0xff}
 )
 
 // defaultNetwork builds the placeholder topology: the Phil&Tropic datacenter at the
@@ -175,6 +179,19 @@ func (g *Game) drawNodeMap(screen *ebiten.Image) {
 		vector.StrokeCircle(screen, x, y, nodeRadius, nodeStrokeW, stroke, true)
 		if n.Security {
 			vector.StrokeCircle(screen, x, y, securityInnerRadius, securityRingW, securityRingFG, true)
+			if n.State == NodeStateNormal {
+				progress := float64(time.Since(g.lastPatchProdAt)) / float64(patchProductionInterval)
+				if progress < 0 {
+					progress = 0
+				}
+				if progress > 1 {
+					progress = 1
+				}
+				angle := -math.Pi/2 + 2*math.Pi*progress
+				dotX := x + float32(math.Cos(angle)*securityInnerRadius)
+				dotY := y + float32(math.Sin(angle)*securityInnerRadius)
+				vector.FillCircle(screen, dotX, dotY, securityProgressDotR, securityProgressFG, true)
+			}
 		}
 	}
 

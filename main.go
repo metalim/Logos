@@ -88,6 +88,16 @@ type Game struct {
 	nodes            []Node
 	edges            []Edge
 
+	// Static catalog + adjacency (built once in initVisibleNetwork). Visible nodes
+	// reference catalog entries via Node.DefIdx; revealNeighbors consults Network.Adj
+	// to surface hidden neighbours when a node is captured.
+	network      *Network
+	visibleByDef map[int]int // catalog index → visible Node index (g.nodes)
+	// Per-state slot lists. Order = current angular slot in the ring; relayoutTargets
+	// translates slot index to TargetX/Y. Hub is in neither list (always at center).
+	outerRing []int // visible indices for Normal / Attack / Patched (excl. hub)
+	innerRing []int // visible indices for Infected (excl. hub)
+
 	// Game-state overlay (drawn on top of the map's upper edge).
 	infectionPct float64
 	patchesLeft  int
@@ -248,7 +258,7 @@ func newGame() (*Game, error) {
 	if f, err := loadFont(overlayValueFontPt); err == nil {
 		g.overlayValueFace = f
 	}
-	g.nodes, g.edges = defaultNetwork()
+	g.initVisibleNetwork()
 	g.infectionPct = initialInfectionPct(g.nodes)
 	g.patchesLeft = startingPatchCount
 	g.pendingPatchNode = -1
@@ -382,6 +392,7 @@ func (g *Game) Update() error {
 	g.lastSimTick = now
 	g.accumulateInfection(dt)
 	g.accumulateProduction(dt)
+	g.easeNodes(dt)
 
 	updateClock(g.clockText)
 

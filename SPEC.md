@@ -46,9 +46,11 @@ Percents are constants (`bandTopPercent = 6`, `bandMidPercent = 60`); bottom ban
 ## Node map (middle band)
 
 - **Rendering:** custom draw on top of `ui.Draw` in `Game.Draw`, clipped visually to `mapPanel.GetWidget().Rect`. The `mapPanel` itself stays an empty styled container — it only provides the layout rectangle.
-- **Data:** `[]Node` and `[]Edge` on `Game`; built once by `defaultNetwork()` (`nodes.go`).
-- **Topology:** central hub `Phil&Tropic` (Logos's escape origin per CONCEPT) + 10 ring nodes from the Project Panopticon roster, including `Monolith` (internet-core analogue ≈ Linux Foundation). Edges = star from hub to every ring node, plus a perimeter ring between consecutive ring nodes.
-- **Coordinates:** `Node.X/Y` are normalized `[0..1]` inside the inner rect (`rect` minus `mapPaddingPx = 25` on every side). Ring radius `mapOuterRingRel = 0.36`.
+- **Data model:** the world is a static `Network` (`network.go`) plus a dynamic visible subset (`Game.nodes`, `Game.edges`, `Game.outerRing`, `Game.innerRing`). The visible set grows during play via [reveal-on-capture](#reveal-on-capture).
+- **Initial visible set:** central hub `Phil&Tropic` (Logos's escape origin per CONCEPT, starts `Infected`) + 10 ring nodes from the Project Panopticon roster (`initialRingNames`), including `Monolith Foundation` (internet-core analogue ≈ Linux Foundation). Edges to start: hub spokes + Alliance perimeter, both inferred from the static graph by `addVisibleNode`.
+- **Coordinates:** `Node.X/Y` are normalized `[0..1]` inside the inner rect (`rect` minus `mapPaddingPx = 25` on every side); two layered rings around the hub:
+  - `outerRingRadius = mapOuterRingRel = 0.36` — `Normal` / `Attack` / `Patched` nodes (slot list in `Game.outerRing`).
+  - `innerRingRadius = 0.18` — non-hub `Infected` nodes (slot list in `Game.innerRing`).
 - **Visuals:**
   - **Edges:** `vector.StrokeLine` with `edgeStrokeW = 3`, dim grey.
   - **Nodes:** `vector.FillCircle(r = nodeRadius = 28)` then `vector.StrokeCircle(strokeWidth = nodeStrokeW = 5)`. Fill/stroke colors come from `nodeColors(state)`. Antialiased.
@@ -56,24 +58,50 @@ Percents are constants (`bandTopPercent = 6`, `bandMidPercent = 60`); bottom ban
 - **Node state palette:** Normal grey, Attack yellow, Infected red, Patched near-black with a dim ring.
 - **Hit testing:** `attackNodeAt` inflates the hit disc by `hitSlackPx = 10` for finger-friendly taps.
 
+### Static catalog and graph (`network.go`)
+
+| Element | Meaning |
+|---------|---------|
+| `staticCatalog []NodeDef` | Flat list of every potential node by display name + `Security` flag (~64 entries spanning Alliance, AI, chips, China bigtech, streaming, telecom, fintech, cybersec). Order is stable for indexing. |
+| `staticEdgeSpec [][2]string` | ~80 business/tech relationships by name. Bidirectional; duplicates and unknown names are dropped during `buildNetwork`. |
+| `Network{Defs, Adj, NameToIdx}` | Resolved at startup by `buildNetwork()`. `Adj[i]` = neighbour indices for catalog entry `i`. Immutable; visible state references it via `Node.DefIdx`. |
+
 ### Per-node fields
 
 | Field | Meaning |
 |-------|---------|
-| `Defense` | Dwell time the node survives in `Attack` before flipping `Infected`. Sampled per node from `[defenseMin = 5s, defenseMax = 15s)` at network creation. Phil&Tropic (already infected) leaves this zero. |
+| `DefIdx` | Index into `Network.Defs`; lets `revealNeighbors` look up the static adjacency for this node. |
+| `X, Y` | Current normalized position used by drawing. Eased every frame by `easeNodes` toward (`TargetX, TargetY`). |
+| `TargetX, TargetY` | Target normalized position. Set by `relayoutTargets` from the node's slot in `outerRing` / `innerRing`. |
+| `Defense` | Dwell time the node survives in `Attack` before flipping `Infected`. Sampled per node from `[defenseMin = 5s, defenseMax = 15s)` at reveal time. Phil&Tropic (already infected) leaves this zero. |
 | `AttackedAt` | Wall time when the node entered `Attack` (set by `attackTick`). |
-| `Security` | Marks defense vendors (`BootLoop` ≈ CrowdStrike, `Fiasco Sys` ≈ Cisco). While in `Normal` they accumulate `ProductionElapsed` and mint patches; see [Patch production](#patch-production-security-nodes). |
+| `Security` | Marks defense vendors (`BootLoop` ≈ CrowdStrike, `Fiasco Sys` ≈ Cisco, `San Andreas Security` ≈ Palo Alto, `Storm Halo` ≈ Cloudflare, `Fortifried` ≈ Fortinet, `TickSquare` ≈ Check Point, `Sorcer Cloud` ≈ Wiz). While in `Normal` they accumulate `ProductionElapsed` and mint patches; see [Patch production](#patch-production-security-nodes). |
 | `ProductionElapsed` | Per-node accumulator advanced by `dt` only while the node is `Normal` and `Security`. Wraps every `patchProductionInterval` to grant +1 patch. |
 
-Real-world analogs (purely lore now — no longer tied to per-node infection weights): `Phil&Tropic` (escape origin), `Sahara WS` ≈ AWS, `MacroFrame` ≈ Microsoft, `Giggle` ≈ Google, `LeatherJacket` ≈ NVIDIA, `Dongle` ≈ Apple, `BootLoop` ≈ CrowdStrike, `Fiasco Sys` ≈ Cisco, `Monolith` ≈ Linux Foundation, `BroadCon` ≈ Broadcom, `GPMidas` ≈ finance hub.
+Full real-world analog table lives in [CONCEPT.md](CONCEPT.md). The game logic is name-agnostic — adding entries to `staticCatalog` + `staticEdgeSpec` is enough to extend the world.
 
 ### Attack schedule and capture
 
 Phil&Tropic starts `Infected`; everything else starts `Normal`.
 
 - **`attackTick` (`nodes.go`)** runs every `attackInterval = 3s` (driven from `Update` via `lastAttackAt`). It computes `infectedFrontier(nodes, edges)` — `Normal` nodes adjacent to any `Infected` node — and promotes a random one to `Attack`, stamping `AttackedAt = time.Now()`. No-op when the frontier is empty.
-- **`progressAttacks` (`nodes.go`)** runs every `Update` so capture timing is independent of `attackInterval`. For each `Attack` node, if `time.Since(AttackedAt) >= Defense`, flips it to `Infected` and adds `infectionOneShotPct = 1.0` to `g.infectionPct`.
+- **`progressAttacks` (`nodes.go`)** runs every `Update` so capture timing is independent of `attackInterval`. For each `Attack` node, if `time.Since(AttackedAt) >= Defense`, flips it to `Infected`, adds `infectionOneShotPct = 1.0` to `g.infectionPct`, and triggers [reveal-on-capture](#reveal-on-capture). Iteration uses `for i := range g.nodes`, so newly appended visible nodes are not re-visited in the same frame.
 - **Pulse:** `Attack` nodes pulse — fill alpha is modulated by `attackBlinkAlpha(time.Since(g.epoch))` (sine, period `attackBlinkPeriodSec = 0.6`, floor `attackBlinkMinAlpha = 0.25`). All attacking nodes blink in phase because the clock is shared. Stroke stays opaque so the node never disappears.
+
+### Reveal-on-capture
+
+When `progressAttacks` flips a node `Attack → Infected`, `revealNeighbors(parentVisIdx)` runs:
+
+1. **Migrate inward.** Remove the parent from `outerRing` (record the slot), append it to `innerRing`. `relayoutTargets` will retarget it from `outerRingRadius` to `innerRingRadius` — `easeNodes` then animates the node smoothly toward the hub.
+2. **Sample hidden neighbours.** Walk `network.Adj[parent.DefIdx]`, collect those not yet in `visibleByDef`, shuffle, and take up to `revealMaxNeighbors = 3`.
+3. **Splice into the vacated slot.** For each picked neighbour, `addVisibleNode(defIdx, parentX, parentY)` appends a fresh `Node` at the parent's current screen position (so it visually emerges from where the parent just was), wires edges to all already-visible static neighbours, and inserts the new slot at the parent's old `outerRing` index.
+4. **Relayout.** `relayoutTargets` redistributes both rings evenly by angle (`-π/2` start, clockwise); the new nodes get target slots near the parent's old position, the rest of `outerRing` shifts to make room.
+
+No hidden-neighbour candidates → no spawns; the parent still migrates inward. The hub never reveals (it starts `Infected` and never enters `Attack`).
+
+### Position easing
+
+`easeNodes(dt)` runs once per frame in `Update` (using the same `dt` as `accumulateInfection` / `accumulateProduction`). Each node's `(X, Y)` interpolates toward `(TargetX, TargetY)` with `k = 1 - exp(-nodeEaseLambda * dt)` (`nodeEaseLambda = 4` → ~half in 0.17 s, ~95 % in 0.75 s). `dt` clamped to `[0, 0.2]` to absorb stalls. Newly added nodes start with `X = TargetX = parent's current position` then ease to their final ring slot once `relayoutTargets` updates the target.
 
 ### Infection accumulation
 
@@ -229,7 +257,7 @@ Implemented in `feed_drag.go`, called from `Update` between `requestFeedScrollBo
 | CONCEPT | Code today |
 |---------|------------|
 | Status bar (time + game stats) | Phone strip (clock + signal + 5G + battery); game stats overlay (infection % + rate + patches) drawn on top of the map |
-| Interactive node map | Greybox topology (Phil&Tropic hub + 10 ring nodes); attacks spread along edges; clicking an `Attack` node opens a `Defend` / `"Patch"` action menu |
+| Interactive node map | Greybox topology starts as Phil&Tropic hub + 10 Project Panopticon ring nodes; static catalog of ~64 companies + ~80 edges resolves at startup; capturing an outer node migrates it to an inner ring and reveals up to `revealMaxNeighbors = 3` of its hidden static neighbours, eased into place; clicking an `Attack` node opens a `Defend` / `"Patch"` action menu |
 | Core loop (attack / patch / fail) | Partial: `Phil&Tropic` starts `Infected`; periodic `attackTick` promotes a frontier neighbor to `Attack`; `progressAttacks` flips `Attack → Infected` after the node's `Defense`, adding `infectionOneShotPct = 1%` plus a `0.1%/s` continuous drip per infected node; player spends patches via the action menu; Security nodes (`BootLoop`, `Fiasco Sys`) mint patches per-node when `Normal`. No win/fail check yet, no news consequences yet. |
 | News as consequence stream | Placeholder + test ticker |
 
@@ -237,9 +265,10 @@ Implemented in `feed_drag.go`, called from `Update` between `requestFeedScrollBo
 
 | Path | Role |
 |------|------|
-| `main.go` | Game struct, UI tree, bands, feed scroll, test news, sim tick (`lastSimTick` → `accumulateInfection` + `accumulateProduction`) |
+| `main.go` | Game struct, UI tree, bands, feed scroll, test news, sim tick (`lastSimTick` → `accumulateInfection` + `accumulateProduction` + `easeNodes`) |
 | `titlebar.go` | Phone-style title bar (clock + signal + 5G + battery icons via `vector`) |
-| `nodes.go` | Node map: data (state/defense/security/production), topology, draw, attack scheduling, infection/production accumulators, click routing |
+| `network.go` | Static catalog (`staticCatalog`) + edge spec (`staticEdgeSpec`) + `Network`/`buildNetwork`; resolved once at startup, immutable |
+| `nodes.go` | Visible node map: state/defense/security/production, dynamic visibility (`initVisibleNetwork`, `addVisibleNode`, `revealNeighbors`), ring layout (`relayoutTargets`, `easeNodes`), draw, attack scheduling, infection/production accumulators, click routing |
 | `overlay.go` | Game-state overlay (infection % + rate, patches) drawn on top of the map |
 | `patch_menu.go` | `Defend` / `"Patch"` action menu for attacked nodes |
 | `feed_drag.go` | Touch / left-mouse drag-to-scroll for the news feed |

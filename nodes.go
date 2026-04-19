@@ -47,6 +47,20 @@ const (
 	// elapsed/patchProductionInterval * 360° (starting at 12 o'clock, clockwise). Radius
 	// sits just inside the ring so a thin gap stays visible at the rim.
 	securityPieRadius = 10
+
+	// Layered topology: hub at center, Infected nodes (other than the hub) condense onto
+	// an inner ring, and everything else (Normal / Attack / Patched) lives on the outer
+	// ring. mapOuterRingRel doubles as outerRingRadius for the visible mid layer.
+	outerRingRadius = mapOuterRingRel
+	innerRingRadius = 0.18
+
+	// Reveal cap per Attack→Infected transition: up to this many previously hidden
+	// neighbours fan out from the captured node onto the outer ring.
+	revealMaxNeighbors = 3
+
+	// Exponential easing rate for Node.X/Y → Node.TargetX/Y (per second). λ=4 settles
+	// to ~half in 0.17 s, ~95% in 0.75 s — quick but visibly smooth.
+	nodeEaseLambda = 4.0
 )
 
 // NodeState mirrors the four states from CONCEPT (Норма / Атака / Заражен / Пропатчен).
@@ -60,11 +74,15 @@ const (
 	NodeStatePatched
 )
 
-// Node carries normalized coordinates [0..1] inside the inner map area.
-// Hub at index 0 sits in the center; the rest are arranged on a single ring.
+// Node is the per-frame state of a visible network member. Coordinates are normalized
+// [0..1] inside the inner map area; the hub at index 0 sits at (0.5, 0.5).
+//
+// Position is double-buffered: drawing reads X/Y, while game logic writes TargetX/TargetY
+// (e.g. relayoutTargets after a reveal). easeNodes runs every frame to interpolate the
+// pair, so any structural change to the visible set produces a smooth animated transition
+// rather than a jump.
 type Node struct {
 	Name  string
-	X, Y  float64
 	State NodeState
 	// Security marks nodes whose business is defense (e.g. CrowdStrike, Cisco). While in
 	// Normal state they accumulate ProductionElapsed; once it crosses
@@ -75,6 +93,14 @@ type Node struct {
 	// Sampled once at network creation; Phil&Tropic (already infected) leaves this zero.
 	Defense    time.Duration
 	AttackedAt time.Time // set when State transitions Normal -> Attack
+
+	// DefIdx points back into Network.Defs; revealNeighbors uses it to look up the static
+	// adjacency list for the node and decide which catalog entries to surface next.
+	DefIdx int
+
+	// Current and target normalized positions; eased every frame by easeNodes.
+	X, Y             float64
+	TargetX, TargetY float64
 }
 
 // Edge connects two node indices.
@@ -95,52 +121,193 @@ var (
 	securityProgressFG = color.NRGBA{R: 0xa8, G: 0xff, B: 0xf0, A: 0xff}
 )
 
-// defaultNetwork builds the placeholder topology: the Phil&Tropic datacenter at the
-// center (Logos's escape origin per CONCEPT) plus a ring of Project Panopticon nodes,
-// including The Monolith Foundation (internet-core analogue, ≈ Linux Foundation).
-// Star edges from the hub + a perimeter ring give the map a recognisable mesh look.
-func defaultNetwork() ([]Node, []Edge) {
-	const cx, cy = 0.5, 0.5
+// initialRingNames is the canonical Project Panopticon ring shown at game start, in
+// clockwise order from the 12-o'clock slot. Subsequent reveals splice new entries into
+// the same outerRing slice, preserving angular continuity.
+var initialRingNames = []string{
+	"Sahara WS",
+	"MacroFrame",
+	"Giggle",
+	"LeatherJacket",
+	"Dongle",
+	"BootLoop",
+	"Fiasco Sys",
+	"Monolith Foundation",
+	"BroadCon",
+	"GPMidas",
+}
 
-	ring := []struct {
-		name     string
-		security bool
-	}{
-		{"Sahara WS", false},           // AWS
-		{"MacroFrame", false},          // Microsoft
-		{"Giggle", false},              // Google
-		{"LeatherJacket", false},       // NVIDIA
-		{"Dongle", false},              // Apple
-		{"BootLoop", true},             // CrowdStrike — security vendor
-		{"Fiasco Sys", true},           // Cisco — networking + security
-		{"Monolith Foundation", false}, // Linux Foundation
-		{"BroadCon", false},            // Broadcom
-		{"GPMidas", false},             // JP Morgan Chase
+// initVisibleNetwork resolves the static catalog into a Network, populates the initial
+// visible set (hub + Alliance ring), seeds the per-ring slot lists, and writes initial
+// positions = target positions (no animation on first frame). Called once from newGame.
+func (g *Game) initVisibleNetwork() {
+	g.network = buildNetwork()
+	g.visibleByDef = make(map[int]int, len(g.network.Defs))
+	g.nodes = g.nodes[:0]
+	g.edges = g.edges[:0]
+	g.outerRing = g.outerRing[:0]
+	g.innerRing = g.innerRing[:0]
+
+	hubIdx, ok := g.network.NameToIdx["Phil&Tropic"]
+	if !ok {
+		return
 	}
+	g.addVisibleNode(hubIdx, 0.5, 0.5)
+	g.nodes[0].State = NodeStateInfected
+	g.nodes[0].TargetX, g.nodes[0].TargetY = 0.5, 0.5
 
-	nodes := make([]Node, 0, len(ring)+1)
-	nodes = append(nodes, Node{Name: "Phil&Tropic", X: cx, Y: cy, State: NodeStateInfected})
-	for i, e := range ring {
-		angle := -math.Pi/2 + 2*math.Pi*float64(i)/float64(len(ring))
-		nodes = append(nodes, Node{
-			Name:     e.name,
-			X:        cx + mapOuterRingRel*math.Cos(angle),
-			Y:        cy + mapOuterRingRel*math.Sin(angle),
-			Security: e.security,
-			Defense:  defenseMin + rand.N(defenseMax-defenseMin),
-		})
-	}
-
-	edges := make([]Edge, 0, 2*len(ring))
-	for i := 1; i <= len(ring); i++ {
-		edges = append(edges, Edge{From: 0, To: i})
-		next := i + 1
-		if next > len(ring) {
-			next = 1
+	for _, name := range initialRingNames {
+		defIdx, ok := g.network.NameToIdx[name]
+		if !ok {
+			continue
 		}
-		edges = append(edges, Edge{From: i, To: next})
+		visIdx := g.addVisibleNode(defIdx, 0.5, 0.5)
+		g.outerRing = append(g.outerRing, visIdx)
 	}
-	return nodes, edges
+
+	g.relayoutTargets()
+	for i := range g.nodes {
+		g.nodes[i].X = g.nodes[i].TargetX
+		g.nodes[i].Y = g.nodes[i].TargetY
+	}
+}
+
+// addVisibleNode appends a fresh Node sourced from network.Defs[defIdx], placing it at
+// (x, y) with target = (x, y). It also creates Edge entries to every already-visible
+// neighbour per the static graph, so connectivity stays in sync as the visible set grows.
+// Returns the new visible index.
+func (g *Game) addVisibleNode(defIdx int, x, y float64) int {
+	def := g.network.Defs[defIdx]
+	n := Node{
+		Name:     def.Name,
+		Security: def.Security,
+		DefIdx:   defIdx,
+		X:        x,
+		Y:        y,
+		TargetX:  x,
+		TargetY:  y,
+	}
+	if def.Name != "Phil&Tropic" {
+		n.Defense = defenseMin + rand.N(defenseMax-defenseMin)
+	}
+	g.nodes = append(g.nodes, n)
+	visIdx := len(g.nodes) - 1
+	g.visibleByDef[defIdx] = visIdx
+
+	for _, neighborDefIdx := range g.network.Adj[defIdx] {
+		if neighborVisIdx, ok := g.visibleByDef[neighborDefIdx]; ok && neighborVisIdx != visIdx {
+			g.edges = append(g.edges, Edge{From: visIdx, To: neighborVisIdx})
+		}
+	}
+	return visIdx
+}
+
+// revealNeighbors is called once a node finishes the Attack→Infected transition. It
+//
+//  1. Pulls the node's slot out of outerRing and appends it to innerRing (the captured
+//     node migrates inward toward the hub).
+//  2. Picks up to revealMaxNeighbors previously hidden static neighbours at random and
+//     splices them into outerRing at the just-vacated slot, so the new nodes appear
+//     in place of the parent and inherit its starting position before easing outward.
+//  3. Recomputes every visible node's TargetX/Y via relayoutTargets.
+//
+// No-op if the catalog has no hidden neighbours left for this node.
+func (g *Game) revealNeighbors(parentVisIdx int) {
+	if parentVisIdx < 0 || parentVisIdx >= len(g.nodes) {
+		return
+	}
+	parentDefIdx := g.nodes[parentVisIdx].DefIdx
+	parentX, parentY := g.nodes[parentVisIdx].X, g.nodes[parentVisIdx].Y
+
+	outerPos := indexOfInt(g.outerRing, parentVisIdx)
+	if outerPos >= 0 {
+		g.outerRing = append(g.outerRing[:outerPos], g.outerRing[outerPos+1:]...)
+	}
+	if !containsInt(g.innerRing, parentVisIdx) {
+		g.innerRing = append(g.innerRing, parentVisIdx)
+	}
+
+	hidden := make([]int, 0, len(g.network.Adj[parentDefIdx]))
+	for _, defIdx := range g.network.Adj[parentDefIdx] {
+		if _, ok := g.visibleByDef[defIdx]; !ok {
+			hidden = append(hidden, defIdx)
+		}
+	}
+	rand.Shuffle(len(hidden), func(i, j int) { hidden[i], hidden[j] = hidden[j], hidden[i] })
+	if len(hidden) > revealMaxNeighbors {
+		hidden = hidden[:revealMaxNeighbors]
+	}
+
+	insertAt := outerPos
+	if insertAt < 0 || insertAt > len(g.outerRing) {
+		insertAt = len(g.outerRing)
+	}
+	for _, defIdx := range hidden {
+		visIdx := g.addVisibleNode(defIdx, parentX, parentY)
+		g.outerRing = append(g.outerRing, 0)
+		copy(g.outerRing[insertAt+1:], g.outerRing[insertAt:])
+		g.outerRing[insertAt] = visIdx
+		insertAt++
+	}
+
+	g.relayoutTargets()
+}
+
+// relayoutTargets recomputes TargetX/Y for every visible node by walking the outer and
+// inner ring slot lists in order and mapping each slot to a polar position. The hub is
+// pinned at (0.5, 0.5). Patched / Normal / Attack / non-hub Infected do not need special
+// handling here — their slot membership in outerRing vs innerRing already encodes intent.
+func (g *Game) relayoutTargets() {
+	assignRing := func(ring []int, radius float64) {
+		n := len(ring)
+		if n == 0 {
+			return
+		}
+		for i, visIdx := range ring {
+			angle := -math.Pi/2 + 2*math.Pi*float64(i)/float64(n)
+			g.nodes[visIdx].TargetX = 0.5 + radius*math.Cos(angle)
+			g.nodes[visIdx].TargetY = 0.5 + radius*math.Sin(angle)
+		}
+	}
+	assignRing(g.outerRing, outerRingRadius)
+	assignRing(g.innerRing, innerRingRadius)
+	// Hub pin runs last so a stray ring assignment can never overwrite (0.5, 0.5).
+	for i := range g.nodes {
+		if g.nodes[i].Name == "Phil&Tropic" {
+			g.nodes[i].TargetX, g.nodes[i].TargetY = 0.5, 0.5
+		}
+	}
+}
+
+// easeNodes interpolates X/Y toward TargetX/Y using a per-second exponential decay
+// (k = 1 - exp(-λ·dt)). Same shape as stepSmoothFeedScroll's easing so the feel matches
+// across the app. dt clamped to [0, 0.2] to absorb stalls / first-frame negative deltas.
+func (g *Game) easeNodes(dt time.Duration) {
+	secs := dt.Seconds()
+	if secs <= 0 {
+		return
+	}
+	if secs > 0.2 {
+		secs = 0.2
+	}
+	k := 1.0 - math.Exp(-nodeEaseLambda*secs)
+	for i := range g.nodes {
+		g.nodes[i].X += (g.nodes[i].TargetX - g.nodes[i].X) * k
+		g.nodes[i].Y += (g.nodes[i].TargetY - g.nodes[i].Y) * k
+	}
+}
+
+func indexOfInt(s []int, v int) int {
+	for i, x := range s {
+		if x == v {
+			return i
+		}
+	}
+	return -1
+}
+
+func containsInt(s []int, v int) bool {
+	return indexOfInt(s, v) >= 0
 }
 
 // drawNodeMap renders edges, node circles, and labels onto screen, clipped
@@ -368,8 +535,10 @@ func initialInfectionPct(nodes []Node) float64 {
 }
 
 // progressAttacks flips any Attack node whose Defense window has elapsed to Infected,
-// crediting the one-time infectionOneShotPct bump. Runs every Update so capture timing
-// is independent of attackInterval. The continuous drip is handled by accumulateInfection.
+// crediting the one-time infectionOneShotPct bump and triggering a reveal of up to
+// revealMaxNeighbors previously hidden static neighbours. Runs every Update so capture
+// timing is independent of attackInterval. Iteration uses range (snapshot length), so
+// nodes appended by revealNeighbors are not re-visited within the same frame.
 func (g *Game) progressAttacks() {
 	now := time.Now()
 	for i := range g.nodes {
@@ -379,6 +548,7 @@ func (g *Game) progressAttacks() {
 		if now.Sub(g.nodes[i].AttackedAt) >= g.nodes[i].Defense {
 			g.nodes[i].State = NodeStateInfected
 			g.infectionPct = clampInfection(g.infectionPct + infectionOneShotPct)
+			g.revealNeighbors(i)
 		}
 	}
 }

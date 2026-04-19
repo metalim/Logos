@@ -97,8 +97,9 @@ type Game struct {
 	innerRing []int // visible indices for Infected (excl. hub)
 
 	// Game-state overlay (drawn on top of the map's upper edge).
-	infectionPct float64
-	patchesLeft  int
+	infectionPct   float64
+	containmentPct float64
+	patchesLeft    int
 
 	// Index of the Attack node whose patch menu is currently shown, or -1 for none.
 	pendingPatchNode int
@@ -394,6 +395,7 @@ func (g *Game) Update() error {
 		g.progressAttacks()
 		g.accumulateInfection(dt)
 		g.accumulateProduction(dt)
+		g.accumulateContainment(dt)
 	}
 	// easeNodes always runs so any in-flight migrate-inward animation finishes cleanly
 	// even after the loss latch — frozen sim, but no jarring half-moved nodes.

@@ -36,6 +36,11 @@ const (
 	infectionOneShotPct = 1.0 // %, added once when a node flips Infected
 	infectionRatePerSec = 0.1 // % per infected node per second
 
+	// Containment is the win-side counter: a flat +containmentRatePerSec drip while the
+	// run is live. At 100% the player wins (Phil&Tropic's blue team finishes recapturing
+	// Logos). 0.5%/s → ~3:20 from a fresh start to victory.
+	containmentRatePerSec = 0.5
+
 	// Patch production: every patchProductionInterval, each Security node currently in
 	// Normal state contributes +1 patch to the player's inventory.
 	patchProductionInterval = 15 * time.Second
@@ -567,6 +572,21 @@ func (g *Game) accumulateInfection(dt time.Duration) {
 		return
 	}
 	g.infectionPct = clampInfection(g.infectionPct + infectionRatePerSec*dt.Seconds()*float64(count))
+}
+
+// accumulateContainment advances the win-side counter at the constant
+// containmentRatePerSec while the run is live; on hitting 100% it triggers the win
+// flow exactly once (triggerWin is idempotent if the player has already lost on the
+// same frame). Caller (Update) gates this on !gameEnded() so the counter freezes at
+// whatever value it had when the run concluded.
+func (g *Game) accumulateContainment(dt time.Duration) {
+	if dt <= 0 || g.containmentPct >= 100 {
+		return
+	}
+	g.containmentPct = clampInfection(g.containmentPct + containmentRatePerSec*dt.Seconds())
+	if g.containmentPct >= 100 {
+		g.triggerWin()
+	}
 }
 
 // countInfected returns the number of nodes currently in Infected state. Used both by

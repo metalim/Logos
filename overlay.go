@@ -75,7 +75,7 @@ func (g *Game) drawGameOverlay(screen *ebiten.Image) {
 	g.drawProgressRow(screen, float64(x), barX, cyTop,
 		"INFECTION", g.infectionPct, infectionRate, infectionTrack, infectionFill)
 	g.drawProgressRow(screen, float64(x), barX, cyBot,
-		"CONTAINMENT", g.containmentPct, containmentRatePerSec, containmentTrack, containmentFill)
+		"CONTAINMENT", g.containmentPct, g.currentContainmentRate(), containmentTrack, containmentFill)
 
 	rightX := float64(x+w) - overlayInnerPadPx
 	rightX -= drawAlignedText(screen, g.overlayValueFace, fmt.Sprintf("x%d", g.patchesLeft),

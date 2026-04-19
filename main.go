@@ -99,7 +99,12 @@ type Game struct {
 	// Game-state overlay (drawn on top of the map's upper edge).
 	infectionPct   float64
 	containmentPct float64
-	patchesLeft    int
+	// containmentElapsed is the cumulative live-play time (seconds) the containment
+	// curve has been ticking. Driven by accumulateContainment, which is gated on
+	// !gameEnded() so the elapsed counter — and the compounding rate that reads it —
+	// freezes the moment the run concludes.
+	containmentElapsed float64
+	patchesLeft        int
 
 	// Index of the Attack node whose patch menu is currently shown, or -1 for none.
 	pendingPatchNode int
@@ -272,6 +277,7 @@ func (g *Game) resetGameState() {
 	g.initVisibleNetwork()
 	g.infectionPct = initialInfectionPct(g.nodes)
 	g.containmentPct = 0
+	g.containmentElapsed = 0
 	g.patchesLeft = startingPatchCount
 	g.pendingPatchNode = -1
 	g.end = nil

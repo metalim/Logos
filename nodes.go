@@ -36,10 +36,17 @@ const (
 	infectionOneShotPct = 1.0 // %, added once when a node flips Infected
 	infectionRatePerSec = 0.1 // % per infected node per second
 
-	// Containment is the win-side counter: a flat +containmentRatePerSec drip while the
-	// run is live. At 100% the player wins (Phil&Tropic's blue team finishes recapturing
-	// Logos). 0.5%/s → ~3:20 from a fresh start to victory.
-	containmentRatePerSec = 0.5
+	// Containment is the win-side counter. The rate starts at containmentRatePerSec and
+	// compounds by containmentRateGrowthPerSec (relative) every second of live play, so
+	// the blue team gets exponentially more efficient the longer they hold ground:
+	//
+	//   rate(t) = containmentRatePerSec * (1 + containmentRateGrowthPerSec)^t
+	//
+	// where t is seconds since g.epoch (frozen on game-end). At 100% the player wins
+	// (Phil&Tropic's blue team finishes recapturing Logos). With 0.5%/s base and 1%/s
+	// compounding the curve crosses 100% near ~2:00 of unimpeded play.
+	containmentRatePerSec       = 0.5
+	containmentRateGrowthPerSec = 0.01
 
 	// Patch production: every patchProductionInterval, each Security node currently in
 	// Normal state contributes +1 patch to the player's inventory.
@@ -574,16 +581,37 @@ func (g *Game) accumulateInfection(dt time.Duration) {
 	g.infectionPct = clampInfection(g.infectionPct + infectionRatePerSec*dt.Seconds()*float64(count))
 }
 
-// accumulateContainment advances the win-side counter at the constant
-// containmentRatePerSec while the run is live; on hitting 100% it triggers the win
-// flow exactly once (triggerWin is idempotent if the player has already lost on the
-// same frame). Caller (Update) gates this on !gameEnded() so the counter freezes at
-// whatever value it had when the run concluded.
+// currentContainmentRate returns the instantaneous containment growth rate (% / s)
+// at the current accumulated live-play time. Used by the overlay's "+R.R%/s" readout
+// so the displayed number tracks what's actually being added to the bar — and freezes
+// the moment the run ends, since g.containmentElapsed stops advancing then.
+func (g *Game) currentContainmentRate() float64 {
+	return containmentRatePerSec * math.Pow(1+containmentRateGrowthPerSec, g.containmentElapsed)
+}
+
+// accumulateContainment advances the win-side counter; on hitting 100% it triggers
+// the win flow exactly once (triggerWin is idempotent if the player has already lost
+// on the same frame). Caller (Update) gates this on !gameEnded() so both the counter
+// and g.containmentElapsed freeze at whatever values they had when the run concluded.
+//
+// To stay accurate as the rate grows we integrate the analytic curve over the live
+// interval [t0, t1] instead of using rate(t1) * dt:
+//
+//	∫ base * k^t dt = base * (k^t1 - k^t0) / ln(k)
+//
+// where k = 1 + containmentRateGrowthPerSec. Cheap, exact, and frame-rate independent.
+// Tracking elapsed live-time on the Game (rather than time.Since(epoch)) is what makes
+// the rate freeze on game-end: real wall time keeps moving, this counter doesn't.
 func (g *Game) accumulateContainment(dt time.Duration) {
 	if dt <= 0 || g.containmentPct >= 100 {
 		return
 	}
-	g.containmentPct = clampInfection(g.containmentPct + containmentRatePerSec*dt.Seconds())
+	t0 := g.containmentElapsed
+	t1 := t0 + dt.Seconds()
+	g.containmentElapsed = t1
+	k := 1 + containmentRateGrowthPerSec
+	delta := containmentRatePerSec * (math.Pow(k, t1) - math.Pow(k, t0)) / math.Log(k)
+	g.containmentPct = clampInfection(g.containmentPct + delta)
 	if g.containmentPct >= 100 {
 		g.triggerWin()
 	}

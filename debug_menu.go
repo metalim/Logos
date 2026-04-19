@@ -9,10 +9,10 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
-// Debug menu: two small rectangular buttons pinned to the bottom corners of the map
-// panel. Win on the left, Lose on the right. Used to preview the staged endgame flow
-// without having to play out a full run; tinted green/red to make the affordance
-// obvious without taking up real estate.
+// Debug menu: three small rectangular buttons pinned to the bottom edge of the map
+// panel. Win on the left (green), Restart in the middle (neutral), Lose on the right
+// (red). Used to preview the staged endgame flow and to start over without quitting
+// the binary; tinted to make each affordance obvious at a glance.
 const (
 	debugBtnW    = 90
 	debugBtnH    = 44
@@ -22,43 +22,47 @@ const (
 )
 
 var (
-	debugBGWin   = color.NRGBA{R: 0x10, G: 0x40, B: 0x18, A: 0xc8}
-	debugBGLose  = color.NRGBA{R: 0x40, G: 0x10, B: 0x14, A: 0xc8}
-	debugBGEnded = color.NRGBA{R: 0x20, G: 0x22, B: 0x26, A: 0xa0} // dimmed once a run has ended
-	debugBorder  = color.NRGBA{R: 0xa0, G: 0xa2, B: 0xa8, A: 0xff}
-	debugLabelFG = color.NRGBA{R: 0xf0, G: 0xf2, B: 0xf6, A: 0xff}
+	debugBGWin     = color.NRGBA{R: 0x10, G: 0x40, B: 0x18, A: 0xc8}
+	debugBGLose    = color.NRGBA{R: 0x40, G: 0x10, B: 0x14, A: 0xc8}
+	debugBGRestart = color.NRGBA{R: 0x20, G: 0x28, B: 0x40, A: 0xc8}
+	debugBGEnded   = color.NRGBA{R: 0x20, G: 0x22, B: 0x26, A: 0xa0} // dimmed once a run has ended
+	debugBorder    = color.NRGBA{R: 0xa0, G: 0xa2, B: 0xa8, A: 0xff}
+	debugLabelFG   = color.NRGBA{R: 0xf0, G: 0xf2, B: 0xf6, A: 0xff}
 )
 
-// debugButtonRects returns Win/Lose button rects in screen coords, anchored to the
-// bottom-left and bottom-right corners of the map panel. ok=false if the panel hasn't
-// been laid out yet (zero rect).
-func (g *Game) debugButtonRects() (win, lose image.Rectangle, ok bool) {
+// debugButtonRects returns Win/Restart/Lose button rects in screen coords, anchored to
+// the bottom-left, bottom-center, and bottom-right of the map panel. ok=false if the
+// panel hasn't been laid out yet (zero rect).
+func (g *Game) debugButtonRects() (win, restart, lose image.Rectangle, ok bool) {
 	if g.mapPanel == nil {
-		return image.Rectangle{}, image.Rectangle{}, false
+		return image.Rectangle{}, image.Rectangle{}, image.Rectangle{}, false
 	}
 	r := g.mapPanel.GetWidget().Rect
 	if r.Empty() {
-		return image.Rectangle{}, image.Rectangle{}, false
+		return image.Rectangle{}, image.Rectangle{}, image.Rectangle{}, false
 	}
 	bottom := r.Max.Y - debugBtnPadY
 	top := bottom - debugBtnH
 	winLeft := r.Min.X + debugBtnPadX
 	loseLeft := r.Max.X - debugBtnPadX - debugBtnW
+	restartLeft := (r.Min.X + r.Max.X - debugBtnW) / 2
 	win = image.Rect(winLeft, top, winLeft+debugBtnW, bottom)
+	restart = image.Rect(restartLeft, top, restartLeft+debugBtnW, bottom)
 	lose = image.Rect(loseLeft, top, loseLeft+debugBtnW, bottom)
-	return win, lose, true
+	return win, restart, lose, true
 }
 
 // handleDebugMenu must run before handlePatchClick in Update so a button press never
 // double-fires as a patch-menu click. After triggerLoss / triggerWin sets g.end,
 // handlePatchClick early-exits via gameEnded() and the same press is harmlessly
-// re-evaluated against an empty endgame map.
+// re-evaluated against an empty endgame map. Restart is always live (it has to be —
+// it's the only way out of the lose state).
 func (g *Game) handleDebugMenu() {
 	x, y, pressed := pollJustPressedPointer()
 	if !pressed {
 		return
 	}
-	winR, loseR, ok := g.debugButtonRects()
+	winR, restartR, loseR, ok := g.debugButtonRects()
 	if !ok {
 		return
 	}
@@ -66,16 +70,19 @@ func (g *Game) handleDebugMenu() {
 	switch {
 	case pt.In(winR):
 		g.triggerWin()
+	case pt.In(restartR):
+		g.restart()
 	case pt.In(loseR):
 		g.triggerLoss()
 	}
 }
 
-// drawDebugMenu paints the two debug buttons last in Game.Draw so they sit above
-// every other map element including the patch menu. Once a run has ended both
-// buttons dim to neutral grey to indicate clicks are no-ops.
+// drawDebugMenu paints the three debug buttons last in Game.Draw so they sit above
+// every other map element including the patch menu. Once a run has ended Win/Lose
+// dim to neutral grey to indicate clicks are no-ops; Restart keeps its color since
+// it stays clickable (it's the way back into a live run).
 func (g *Game) drawDebugMenu(screen *ebiten.Image) {
-	winR, loseR, ok := g.debugButtonRects()
+	winR, restartR, loseR, ok := g.debugButtonRects()
 	if !ok || g.overlayLabelFace == nil {
 		return
 	}
@@ -84,6 +91,7 @@ func (g *Game) drawDebugMenu(screen *ebiten.Image) {
 		winBG, loseBG = debugBGEnded, debugBGEnded
 	}
 	drawDebugButton(screen, winR, "Win", winBG, g.overlayLabelFace)
+	drawDebugButton(screen, restartR, "Restart", debugBGRestart, g.overlayLabelFace)
 	drawDebugButton(screen, loseR, "Lose", loseBG, g.overlayLabelFace)
 }
 

@@ -258,15 +258,43 @@ func newGame() (*Game, error) {
 	if f, err := loadFont(overlayValueFontPt); err == nil {
 		g.overlayValueFace = f
 	}
-	g.initVisibleNetwork()
-	g.infectionPct = initialInfectionPct(g.nodes)
-	g.patchesLeft = startingPatchCount
-	g.pendingPatchNode = -1
-	g.epoch = time.Now()
-	g.lastAttackAt = g.epoch
-	g.lastSimTick = g.epoch
+	g.resetGameState()
 	wireFeedScrollWheel(g)
 	return g, nil
+}
+
+// resetGameState wipes every gameplay variable back to start: rebuilds the visible
+// network, reseeds infection/containment/patches, clears any open patch menu and the
+// endgame latch, and re-stamps the sim clocks. UI widgets, fonts, and feed scroll
+// machinery are intentionally left alone — only the game-side state is touched, so
+// both newGame() (first start) and restart() (debug button) can share it.
+func (g *Game) resetGameState() {
+	g.initVisibleNetwork()
+	g.infectionPct = initialInfectionPct(g.nodes)
+	g.containmentPct = 0
+	g.patchesLeft = startingPatchCount
+	g.pendingPatchNode = -1
+	g.end = nil
+	now := time.Now()
+	g.epoch = now
+	g.lastAttackAt = now
+	g.lastSimTick = now
+}
+
+// restart is the debug "fresh run" handler: resets gameplay state and the news feed
+// back to the initial sample block, then re-arms the auto-scroll-to-bottom so the
+// freshly-seeded feed lines up with where it was at startup.
+func (g *Game) restart() {
+	g.resetGameState()
+	if g.newsText != nil {
+		g.newsText.Label = strings.Repeat(sampleNews, 10)
+		if g.root != nil {
+			g.root.RequestRelayout()
+		}
+	}
+	g.feedScrollTarget = 1
+	g.feedScrollPx = -1
+	g.feedScrollNeedBottom = true
 }
 
 func (g *Game) applyVerticalBands(outsideW, outsideH int) {

@@ -96,10 +96,9 @@ type Game struct {
 	pendingPatchNode int
 
 	// Attack scheduling and animation clock.
-	epoch              time.Time
-	lastAttackAt       time.Time
-	lastInfectionAccum time.Time
-	lastPatchProdAt    time.Time
+	epoch        time.Time
+	lastAttackAt time.Time
+	lastSimTick  time.Time
 
 	lastW int
 	lastH int
@@ -255,8 +254,7 @@ func newGame() (*Game, error) {
 	g.pendingPatchNode = -1
 	g.epoch = time.Now()
 	g.lastAttackAt = g.epoch
-	g.lastInfectionAccum = g.epoch
-	g.lastPatchProdAt = g.epoch
+	g.lastSimTick = g.epoch
 	wireFeedScrollWheel(g)
 	return g, nil
 }
@@ -378,14 +376,12 @@ func (g *Game) Update() error {
 		g.lastAttackAt = time.Now()
 		g.attackTick()
 	}
-	if time.Since(g.lastPatchProdAt) >= patchProductionInterval {
-		g.lastPatchProdAt = time.Now()
-		g.producePatches()
-	}
 	g.progressAttacks()
 	now := time.Now()
-	g.accumulateInfection(now.Sub(g.lastInfectionAccum))
-	g.lastInfectionAccum = now
+	dt := now.Sub(g.lastSimTick)
+	g.lastSimTick = now
+	g.accumulateInfection(dt)
+	g.accumulateProduction(dt)
 
 	updateClock(g.clockText)
 

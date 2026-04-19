@@ -43,9 +43,10 @@ const (
 	// Visual badge for Security nodes: inner concentric ring drawn over the state fill.
 	securityInnerRadius = 13
 	securityRingW       = 3
-	// Production-progress marker that travels around the security ring; angle =
-	// elapsed/patchProductionInterval * 360° (starting at 12 o'clock, clockwise).
-	securityProgressDotR = 4
+	// Production-progress sector that fills inside the security ring; sweep angle =
+	// elapsed/patchProductionInterval * 360° (starting at 12 o'clock, clockwise). Radius
+	// sits just inside the ring so a thin gap stays visible at the rim.
+	securityPieRadius = 10
 )
 
 // NodeState mirrors the four states from CONCEPT (Норма / Атака / Заражен / Пропатчен).
@@ -66,8 +67,10 @@ type Node struct {
 	X, Y  float64
 	State NodeState
 	// Security marks nodes whose business is defense (e.g. CrowdStrike, Cisco). While in
-	// Normal state they produce patches on the global production tick.
-	Security bool
+	// Normal state they accumulate ProductionElapsed; once it crosses
+	// patchProductionInterval the node mints +1 patch and the accumulator wraps.
+	Security          bool
+	ProductionElapsed time.Duration
 	// Defense is the dwell time in Attack before progressAttacks flips this node to Infected.
 	// Sampled once at network creation; Phil&Tropic (already infected) leaves this zero.
 	Defense    time.Duration
@@ -179,18 +182,17 @@ func (g *Game) drawNodeMap(screen *ebiten.Image) {
 		vector.StrokeCircle(screen, x, y, nodeRadius, nodeStrokeW, stroke, true)
 		if n.Security {
 			vector.StrokeCircle(screen, x, y, securityInnerRadius, securityRingW, securityRingFG, true)
-			if n.State == NodeStateNormal {
-				progress := float64(time.Since(g.lastPatchProdAt)) / float64(patchProductionInterval)
+			// Pie also stays visible during Attack so the player can see the timer is frozen
+			// (accumulateProduction skips non-Normal states, so progress doesn't advance).
+			if n.State == NodeStateNormal || n.State == NodeStateAttack {
+				progress := float64(n.ProductionElapsed) / float64(patchProductionInterval)
 				if progress < 0 {
 					progress = 0
 				}
 				if progress > 1 {
 					progress = 1
 				}
-				angle := -math.Pi/2 + 2*math.Pi*progress
-				dotX := x + float32(math.Cos(angle)*securityInnerRadius)
-				dotY := y + float32(math.Sin(angle)*securityInnerRadius)
-				vector.FillCircle(screen, dotX, dotY, securityProgressDotR, securityProgressFG, true)
+				fillPieSector(screen, x, y, securityPieRadius, -math.Pi/2, 2*math.Pi*progress, securityProgressFG)
 			}
 		}
 	}
@@ -406,18 +408,23 @@ func countInfected(nodes []Node) int {
 	return n
 }
 
-// producePatches grants +1 patch per Security node currently in Normal state. Called from
-// Update on patchProductionInterval cadence (single global timer; per-node timers would
-// reward exact-tick captures, which we don't want).
-func (g *Game) producePatches() {
-	add := 0
-	for i := range g.nodes {
-		if g.nodes[i].Security && g.nodes[i].State == NodeStateNormal {
-			add++
-		}
+// accumulateProduction advances each Security node's ProductionElapsed by dt while it is
+// in Normal state and converts every full patchProductionInterval into +1 patch. Attack /
+// Infected / Patched nodes are skipped, so the timer (and its visual pie sector) pauses
+// during attacks; partial progress is preserved across Defend bounces.
+func (g *Game) accumulateProduction(dt time.Duration) {
+	if dt <= 0 {
+		return
 	}
-	if add > 0 {
-		g.patchesLeft += add
+	for i := range g.nodes {
+		if !g.nodes[i].Security || g.nodes[i].State != NodeStateNormal {
+			continue
+		}
+		g.nodes[i].ProductionElapsed += dt
+		for g.nodes[i].ProductionElapsed >= patchProductionInterval {
+			g.nodes[i].ProductionElapsed -= patchProductionInterval
+			g.patchesLeft++
+		}
 	}
 }
 
@@ -453,6 +460,27 @@ func infectedFrontier(nodes []Node, edges []Edge) []int {
 		}
 	}
 	return out
+}
+
+// fillPieSector fills a circular sector centered at (cx, cy) with radius r, starting at
+// startAngle and sweeping clockwise (in screen coords) by sweep radians. Sweep <= 0 draws
+// nothing; sweep >= 2π collapses to a full filled circle (avoiding degenerate Arc paths).
+func fillPieSector(dst *ebiten.Image, cx, cy, r float32, startAngle, sweep float64, clr color.Color) {
+	if sweep <= 0 {
+		return
+	}
+	if sweep >= 2*math.Pi {
+		vector.FillCircle(dst, cx, cy, r, clr, true)
+		return
+	}
+	p := &vector.Path{}
+	p.MoveTo(cx, cy)
+	p.LineTo(cx+r*float32(math.Cos(startAngle)), cy+r*float32(math.Sin(startAngle)))
+	p.Arc(cx, cy, r, float32(startAngle), float32(startAngle+sweep), vector.Clockwise)
+	p.Close()
+	op := &vector.DrawPathOptions{AntiAlias: true}
+	op.ColorScale.ScaleWithColor(clr)
+	vector.FillPath(dst, p, nil, op)
 }
 
 func drawCenteredLabel(dst *ebiten.Image, face text.Face, s string, cx, top float64, clr color.Color) {

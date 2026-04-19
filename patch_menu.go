@@ -3,6 +3,7 @@ package main
 import (
 	"image"
 	"image/color"
+	"math/rand/v2"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -71,13 +72,34 @@ func drawMenuButton(dst *ebiten.Image, r image.Rectangle, label string, face tex
 }
 
 // applyPatch is the "Patch" action: lock the node down (NodeStatePatched) so it cannot be
-// re-attacked but also no longer produces (relevant for Security nodes). Costs one patch.
+// re-attacked but also no longer produces (relevant for Security nodes). Costs one patch
+// and emits a randomly chosen consequence line from the node's PatchNews into the news
+// feed (silent if the catalog entry has no pool).
 func (g *Game) applyPatch(nodeIdx int) {
 	if !g.canSpendPatchOn(nodeIdx) {
 		return
 	}
 	g.nodes[nodeIdx].State = NodeStatePatched
 	g.patchesLeft--
+	g.pushNews(g.pickPatchNews(nodeIdx))
+}
+
+// pickPatchNews returns a randomly chosen consequence line for the given visible node,
+// or "" if the network/catalog has no PatchNews entries for it. Defensive on bad indices
+// and missing network so test/setup paths never crash on an unwired catalog.
+func (g *Game) pickPatchNews(nodeIdx int) string {
+	if nodeIdx < 0 || nodeIdx >= len(g.nodes) || g.network == nil {
+		return ""
+	}
+	defIdx := g.nodes[nodeIdx].DefIdx
+	if defIdx < 0 || defIdx >= len(g.network.Defs) {
+		return ""
+	}
+	pool := g.network.Defs[defIdx].PatchNews
+	if len(pool) == 0 {
+		return ""
+	}
+	return pool[rand.IntN(len(pool))]
 }
 
 // applyDefend is the Defend action: bounce the node back to Normal so it stays in play

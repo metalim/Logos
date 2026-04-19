@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"fmt"
 	"image/color"
 	"log"
 	"math"
@@ -54,7 +53,6 @@ const (
 	// Initial player resource per CONCEPT (placeholder until the core loop is wired).
 	startingPatchCount = 5
 
-	testNewsInterval = 5 * time.Second
 	// feedScrollPx moves each frame by a fraction of (targetPx - feedScrollPx); lambda scales with dt (~seconds^-1).
 	feedScrollLambda = 14.0
 )
@@ -128,9 +126,6 @@ type Game struct {
 	feedDragTouchID ebiten.TouchID
 	feedDragStartY  int
 	feedDragStartPx float64
-
-	testNewsSerial int
-	lastTestNews   time.Time
 }
 
 func loadFont(size float64) (text.Face, error) {
@@ -247,7 +242,6 @@ func newGame() (*Game, error) {
 	g.feedScrollTarget = 1
 	g.feedScroll.ScrollTop = 1
 	g.feedScrollPx = -1
-	g.lastTestNews = time.Now()
 	g.clockText = populatePhoneTitleBar(statusBar, face)
 	if labelFace, err := loadFont(mapLabelFontPt); err == nil {
 		g.mapLabelFace = labelFace
@@ -365,23 +359,22 @@ func (g *Game) stepSmoothFeedScroll() {
 	}
 }
 
-func (g *Game) pushTestNews() {
-	g.testNewsSerial++
-	line := fmt.Sprintf(
-		"\n\n• [TEST %d] Simulated wire: Janus ingest queue +%d; timer tick.",
-		g.testNewsSerial,
-		g.testNewsSerial*7%97,
-	)
-	g.newsText.Label += line
-	g.root.RequestRelayout()
+// pushNews appends a single bullet line to the news feed and schedules an auto-scroll
+// to the bottom on the next frame (deferred via feedScrollNeedBottom because triggering
+// PreferredSize during Layout has crashed ebitenui in the past). Empty strings are
+// silently ignored so callers don't have to guard.
+func (g *Game) pushNews(line string) {
+	if line == "" || g.newsText == nil {
+		return
+	}
+	g.newsText.Label += "\n\n• " + line
+	if g.root != nil {
+		g.root.RequestRelayout()
+	}
 	g.feedScrollNeedBottom = true
 }
 
 func (g *Game) Update() error {
-	if time.Since(g.lastTestNews) >= testNewsInterval {
-		g.lastTestNews = time.Now()
-		g.pushTestNews()
-	}
 	if time.Since(g.lastAttackAt) >= attackInterval {
 		g.lastAttackAt = time.Now()
 		g.attackTick()

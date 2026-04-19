@@ -247,10 +247,18 @@ Implemented in `feed_drag.go`, called from `Update` between `requestFeedScrollBo
 
 **Proportional easing** toward `feedScrollTarget * extra`: same step runs for **new content (scroll to bottom)** and **manual wheel** (target moves; `feedScrollPx` follows).
 
-## Test harness
+## News feed authoring
 
-- Every **`testNewsInterval`** (5 seconds, wall clock), append a formatted test bullet to `newsText.Label`, `RequestRelayout`, set `feedScrollNeedBottom`.
-- Used to validate feed growth and auto-scroll without full game logic.
+Every `NodeDef` in `staticCatalog` carries a `PatchNews []string` pool — 2-3 short
+English consequence lines describing the macroeconomic fallout of taking that node out
+of play. Lines are written without the leading bullet; `pushNews` prepends `"\n\n• "`.
+
+- **Trigger:** `applyPatch` (the `"Patch"` menu action) calls `g.pushNews(g.pickPatchNews(nodeIdx))` after flipping the node to `NodeStatePatched`. `applyDefend` does **not** trigger news — defending only bounces the node back to Normal, no economic damage.
+- **Selection:** `pickPatchNews` returns one entry uniformly at random from `network.Defs[node.DefIdx].PatchNews`; missing pool → empty string → silent (defensive, no crash on catalog gaps).
+- **Feed update:** `pushNews` appends the line to `newsText.Label`, calls `RequestRelayout`, and sets `feedScrollNeedBottom` so the next frame auto-scrolls to the bottom (deferred because PreferredSize during Layout has crashed ebitenui in the past).
+- **Style:** the writing keeps the example tone — two sentences, concrete consequence, slightly absurd-realistic. New nodes added to the catalog should follow the same shape so the feed reads consistently.
+
+There is no test-news ticker anymore; the feed is driven entirely by player actions on top of the initial `sampleNews` placeholder block.
 
 ## Implemented vs CONCEPT
 
@@ -258,19 +266,19 @@ Implemented in `feed_drag.go`, called from `Update` between `requestFeedScrollBo
 |---------|------------|
 | Status bar (time + game stats) | Phone strip (clock + signal + 5G + battery); game stats overlay (infection % + rate + patches) drawn on top of the map |
 | Interactive node map | Greybox topology starts as Phil&Tropic hub + 10 Project Panopticon ring nodes; static catalog of ~64 companies + ~80 edges resolves at startup; capturing an outer node migrates it to an inner ring and reveals up to `revealMaxNeighbors = 3` of its hidden static neighbours, eased into place; clicking an `Attack` node opens a `Defend` / `"Patch"` action menu |
-| Core loop (attack / patch / fail) | Partial: `Phil&Tropic` starts `Infected`; periodic `attackTick` promotes a frontier neighbor to `Attack`; `progressAttacks` flips `Attack → Infected` after the node's `Defense`, adding `infectionOneShotPct = 1%` plus a `0.1%/s` continuous drip per infected node; player spends patches via the action menu; Security nodes (`BootLoop`, `Fiasco Sys`) mint patches per-node when `Normal`. No win/fail check yet, no news consequences yet. |
-| News as consequence stream | Placeholder + test ticker |
+| Core loop (attack / patch / fail) | Partial: `Phil&Tropic` starts `Infected`; periodic `attackTick` promotes a frontier neighbor to `Attack`; `progressAttacks` flips `Attack → Infected` after the node's `Defense`, adding `infectionOneShotPct = 1%` plus a `0.1%/s` continuous drip per infected node; player spends patches via the action menu; Security nodes (`BootLoop`, `Fiasco Sys`) mint patches per-node when `Normal`. No win/fail check yet. |
+| News as consequence stream | Initial placeholder `sampleNews` + per-patch line drawn from `NodeDef.PatchNews` (random pick, 2-3 lines per node) emitted by `applyPatch` via `pushNews` |
 
 ## File map
 
 | Path | Role |
 |------|------|
-| `main.go` | Game struct, UI tree, bands, feed scroll, test news, sim tick (`lastSimTick` → `accumulateInfection` + `accumulateProduction` + `easeNodes`) |
+| `main.go` | Game struct, UI tree, bands, feed scroll, `pushNews`, sim tick (`lastSimTick` → `accumulateInfection` + `accumulateProduction` + `easeNodes`) |
 | `titlebar.go` | Phone-style title bar (clock + signal + 5G + battery icons via `vector`) |
-| `network.go` | Static catalog (`staticCatalog`) + edge spec (`staticEdgeSpec`) + `Network`/`buildNetwork`; resolved once at startup, immutable |
+| `network.go` | Static catalog (`staticCatalog` with `NodeDef.PatchNews`) + edge spec (`staticEdgeSpec`) + `Network`/`buildNetwork`; resolved once at startup, immutable |
 | `nodes.go` | Visible node map: state/defense/security/production, dynamic visibility (`initVisibleNetwork`, `addVisibleNode`, `revealNeighbors`), ring layout (`relayoutTargets`, `easeNodes`), draw, attack scheduling, infection/production accumulators, click routing |
 | `overlay.go` | Game-state overlay (infection % + rate, patches) drawn on top of the map |
-| `patch_menu.go` | `Defend` / `"Patch"` action menu for attacked nodes |
+| `patch_menu.go` | `Defend` / `"Patch"` action menu for attacked nodes; `applyPatch` emits a `pickPatchNews` line into the feed |
 | `feed_drag.go` | Touch / left-mouse drag-to-scroll for the news feed |
 | `wheel_native.go` | `feedWheelContentPixelsPerUnit = 45.0` (build tag `!js`, layout-pixel-scaled) |
 | `wheel_js.go` | `feedWheelContentPixelsPerUnit = 2.5` (build tag `js`, layout-pixel-scaled) |

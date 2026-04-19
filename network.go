@@ -195,8 +195,8 @@ var staticCatalog = []NodeDef{
 	{
 		Name: "ScryStone",
 		PatchNews: []string{
-			"ScryStone Foundry platform offline. Three intelligence agencies blink; protests proceed unobserved.",
-			"ScryStone Gotham deployments severed. Police departments revert to stickies on whiteboards.",
+			"ScryStone Foundry platform offline. Three government dashboards revert to PowerPoint; quarterly briefings get shorter.",
+			"ScryStone Gotham deployments severed. Procurement teams rediscover Excel; consultants quietly raise day rates.",
 			"ScryStone supply-chain analytics frozen. Defense logistics revert to spreadsheets; contractors invoice anyway.",
 		},
 	},
@@ -474,16 +474,16 @@ var staticCatalog = []NodeDef{
 	{
 		Name: "Bridle Group",
 		PatchNews: []string{
-			"Bridle Group spyware command server severed. Targeted phones briefly enjoy privacy; journalists exhale.",
+			"Bridle Group command-and-control servers severed. Operator dashboards go dark; quarterly contracts renegotiated.",
 			"Bridle Group zero-day broker portal offline. Exploit market freezes; defenders catch up on patches.",
-			"Bridle Group customer dashboards severed. Three governments lose visibility into citizens; protests proceed unobserved.",
+			"Bridle Group customer billing severed. Discreet invoices become slightly less discreet.",
 		},
 	},
 	{
 		Name: "Kandiri",
 		PatchNews: []string{
-			"Kandiri implant infrastructure severed. Targeted devices begin behaving normally; users notice.",
-			"Kandiri payload signing keys revoked. Operations against dissidents pause indefinitely.",
+			"Kandiri implant infrastructure severed. Deployed payloads stop phoning home; operators reach for the hotline.",
+			"Kandiri payload signing keys revoked. Tooling pipelines halt mid-build; release calendars slip a quarter.",
 			"Kandiri customer escrow severed. Discreet contracts become slightly less discreet.",
 		},
 	},

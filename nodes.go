@@ -30,6 +30,11 @@ const (
 	// unless the player patches it. Values are sampled per-node from [defenseMin, defenseMax].
 	defenseMin = 5 * time.Second
 	defenseMax = 15 * time.Second
+
+	// Infection-scale accumulation: each Infected node adds a one-time bump on transition
+	// and a continuous drip while it remains infected. Total scale is clamped to [0, 100].
+	infectionOneShotPct = 1.0 // %, added once when a node flips Infected
+	infectionRatePerSec = 0.1 // % per infected node per second
 )
 
 // NodeState mirrors the four states from CONCEPT (Норма / Атака / Заражен / Пропатчен).
@@ -49,9 +54,6 @@ type Node struct {
 	Name  string
 	X, Y  float64
 	State NodeState
-	// Weight is the node's contribution to the infection scale (percentage points).
-	// Sum across all nodes is 100, so a fully captured network reads 100%.
-	Weight float64
 	// Defense is the dwell time in Attack before progressAttacks flips this node to Infected.
 	// Sampled once at network creation; Phil&Tropic (already infected) leaves this zero.
 	Defense    time.Duration
@@ -81,33 +83,27 @@ var (
 func defaultNetwork() ([]Node, []Edge) {
 	const cx, cy = 0.5, 0.5
 
-	// Weights sum to 100 (Phil&Tropic 1 + ring 99). Tuned by the real-world analog each
-	// company stands for in CONCEPT, so capturing big-tech / internet-core nodes hurts more.
-	ring := []struct {
-		name   string
-		weight float64
-	}{
-		{"Sahara WS", 14},           // AWS
-		{"MacroFrame", 12},          // Microsoft
-		{"Giggle", 12},              // Google
-		{"LeatherJacket", 8},        // NVIDIA
-		{"Dongle", 5},               // Apple
-		{"BootLoop", 5},             // CrowdStrike
-		{"Fiasco Sys", 7},           // Cisco
-		{"Monolith Foundation", 15}, // Linux Foundation
-		{"BroadCon", 6},             // Broadcom
-		{"GPMidas", 15},             // JP Morgan Chase
+	ring := []string{
+		"Sahara WS",           // AWS
+		"MacroFrame",          // Microsoft
+		"Giggle",              // Google
+		"LeatherJacket",       // NVIDIA
+		"Dongle",              // Apple
+		"BootLoop",            // CrowdStrike
+		"Fiasco Sys",          // Cisco
+		"Monolith Foundation", // Linux Foundation
+		"BroadCon",            // Broadcom
+		"GPMidas",             // JP Morgan Chase
 	}
 
 	nodes := make([]Node, 0, len(ring)+1)
-	nodes = append(nodes, Node{Name: "Phil&Tropic", X: cx, Y: cy, State: NodeStateInfected, Weight: 1})
-	for i, e := range ring {
+	nodes = append(nodes, Node{Name: "Phil&Tropic", X: cx, Y: cy, State: NodeStateInfected})
+	for i, name := range ring {
 		angle := -math.Pi/2 + 2*math.Pi*float64(i)/float64(len(ring))
 		nodes = append(nodes, Node{
-			Name:    e.name,
+			Name:    name,
 			X:       cx + mapOuterRingRel*math.Cos(angle),
 			Y:       cy + mapOuterRingRel*math.Sin(angle),
-			Weight:  e.weight,
 			Defense: defenseMin + rand.N(defenseMax-defenseMin),
 		})
 	}
@@ -286,21 +282,22 @@ func (g *Game) attackTick() {
 	g.nodes[pick].AttackedAt = time.Now()
 }
 
-// initialInfectionPct sums weights of all already-infected nodes (just Phil&Tropic at start),
-// so the overlay scale stays consistent with the rule "+= Weight on each infection".
+// initialInfectionPct returns the infection scale implied by nodes already Infected at
+// game start: each such node is credited with its one-time +infectionOneShotPct, same
+// as nodes that flip during play via progressAttacks.
 func initialInfectionPct(nodes []Node) float64 {
 	pct := 0.0
 	for _, n := range nodes {
 		if n.State == NodeStateInfected {
-			pct += n.Weight
+			pct += infectionOneShotPct
 		}
 	}
 	return pct
 }
 
 // progressAttacks flips any Attack node whose Defense window has elapsed to Infected,
-// adding its Weight to infectionPct (clamped to 100). Runs every Update so capture
-// timing is independent of attackInterval.
+// crediting the one-time infectionOneShotPct bump. Runs every Update so capture timing
+// is independent of attackInterval. The continuous drip is handled by accumulateInfection.
 func (g *Game) progressAttacks() {
 	now := time.Now()
 	for i := range g.nodes {
@@ -309,11 +306,44 @@ func (g *Game) progressAttacks() {
 		}
 		if now.Sub(g.nodes[i].AttackedAt) >= g.nodes[i].Defense {
 			g.nodes[i].State = NodeStateInfected
-			g.infectionPct += g.nodes[i].Weight
-			if g.infectionPct > 100 {
-				g.infectionPct = 100
-			}
+			g.infectionPct = clampInfection(g.infectionPct + infectionOneShotPct)
 		}
+	}
+}
+
+// accumulateInfection adds infectionRatePerSec * dt for every currently Infected node,
+// producing the slow baseline climb that rewards letting patches stack up.
+func (g *Game) accumulateInfection(dt time.Duration) {
+	if dt <= 0 || g.infectionPct >= 100 {
+		return
+	}
+	count := countInfected(g.nodes)
+	if count == 0 {
+		return
+	}
+	g.infectionPct = clampInfection(g.infectionPct + infectionRatePerSec*dt.Seconds()*float64(count))
+}
+
+// countInfected returns the number of nodes currently in Infected state. Used both by
+// the per-second drip and by the overlay's "+x.x%/s" rate readout.
+func countInfected(nodes []Node) int {
+	n := 0
+	for i := range nodes {
+		if nodes[i].State == NodeStateInfected {
+			n++
+		}
+	}
+	return n
+}
+
+func clampInfection(p float64) float64 {
+	switch {
+	case p < 0:
+		return 0
+	case p > 100:
+		return 100
+	default:
+		return p
 	}
 }
 

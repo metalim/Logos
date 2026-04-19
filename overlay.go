@@ -72,8 +72,13 @@ func (g *Game) drawGameOverlay(screen *ebiten.Image) {
 	}
 	leftX += float64(infectionBarW) + overlayItemGapPx
 
-	drawAlignedText(screen, g.overlayValueFace, fmt.Sprintf("%d%%", int(pct+0.5)),
+	leftX += drawAlignedText(screen, g.overlayValueFace, fmt.Sprintf("%.1f%%", pct),
 		leftX, cy, text.AlignStart, text.AlignCenter, overlayValue)
+	leftX += overlayItemGapPx
+
+	rate := infectionRatePerSec * float64(countInfected(g.nodes))
+	drawAlignedText(screen, g.overlayLabelFace, fmt.Sprintf("+%.1f%%/s", rate),
+		leftX, cy, text.AlignStart, text.AlignCenter, infectionFill)
 
 	rightX := float64(x+w) - overlayInnerPadPx
 	rightX -= drawAlignedText(screen, g.overlayValueFace, fmt.Sprintf("x%d", g.patchesLeft),

@@ -93,8 +93,9 @@ type Game struct {
 	patchesLeft  int
 
 	// Attack scheduling and animation clock.
-	epoch        time.Time
-	lastAttackAt time.Time
+	epoch              time.Time
+	lastAttackAt       time.Time
+	lastInfectionAccum time.Time
 
 	lastW int
 	lastH int
@@ -249,6 +250,7 @@ func newGame() (*Game, error) {
 	g.patchesLeft = startingPatchCount
 	g.epoch = time.Now()
 	g.lastAttackAt = g.epoch
+	g.lastInfectionAccum = g.epoch
 	wireFeedScrollWheel(g)
 	return g, nil
 }
@@ -371,6 +373,9 @@ func (g *Game) Update() error {
 		g.attackTick()
 	}
 	g.progressAttacks()
+	now := time.Now()
+	g.accumulateInfection(now.Sub(g.lastInfectionAccum))
+	g.lastInfectionAccum = now
 
 	updateClock(g.clockText)
 

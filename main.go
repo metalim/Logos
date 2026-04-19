@@ -92,6 +92,9 @@ type Game struct {
 	infectionPct float64
 	patchesLeft  int
 
+	// Index of the Attack node whose patch menu is currently shown, or -1 for none.
+	pendingPatchNode int
+
 	// Attack scheduling and animation clock.
 	epoch              time.Time
 	lastAttackAt       time.Time
@@ -249,6 +252,7 @@ func newGame() (*Game, error) {
 	g.nodes, g.edges = defaultNetwork()
 	g.infectionPct = initialInfectionPct(g.nodes)
 	g.patchesLeft = startingPatchCount
+	g.pendingPatchNode = -1
 	g.epoch = time.Now()
 	g.lastAttackAt = g.epoch
 	g.lastInfectionAccum = g.epoch
@@ -400,6 +404,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	g.ui.Draw(screen)
 	g.drawNodeMap(screen)
 	g.drawGameOverlay(screen)
+	g.drawPatchMenu(screen)
 }
 
 func (g *Game) Layout(_, _ int) (int, int) {

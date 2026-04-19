@@ -255,36 +255,58 @@ func (g *Game) nodeScreenPos(i int) (cx, cy float32, ok bool) {
 		true
 }
 
-// handlePatchClick consumes a just-pressed pointer (mouse or touch) over the map area
-// and patches the topmost Attack node under it, paying one patch from the inventory.
-// No-op when patches are exhausted, when the pointer misses every Attack node, or when
-// the press happened outside the map area (so feed-drag etc. stay independent).
+// handlePatchClick routes just-pressed pointer events (mouse or touch) for the patch menu:
+//
+//  1. If a menu is already open, an in-button click triggers the action (Defend or "Patch")
+//     and any other click cancels the menu (and may open a new one if it lands on another
+//     Attack node).
+//  2. Otherwise a click on an Attack node inside the map area opens the menu for that node.
+//
+// No menu opens (and no action runs) while the player has zero patches.
 func (g *Game) handlePatchClick() {
-	if g.mapPanel == nil || g.patchesLeft <= 0 {
+	if g.mapPanel == nil {
 		return
 	}
-	mapRect := g.mapPanel.GetWidget().Rect
-
-	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-		x, y := ebiten.CursorPosition()
-		if image.Pt(x, y).In(mapRect) {
-			g.tryPatchAt(x, y)
+	if g.pendingPatchNode >= 0 {
+		// Menu target may have flipped Infected (defense ran out) since last frame.
+		if g.pendingPatchNode >= len(g.nodes) || g.nodes[g.pendingPatchNode].State != NodeStateAttack {
+			g.pendingPatchNode = -1
 		}
+	}
+
+	x, y, pressed := pollJustPressedPointer()
+	if !pressed {
 		return
 	}
-	for _, id := range inpututil.AppendJustPressedTouchIDs(nil) {
-		x, y := ebiten.TouchPosition(id)
-		if image.Pt(x, y).In(mapRect) {
-			if g.tryPatchAt(x, y) {
+
+	if g.pendingPatchNode >= 0 {
+		if defendR, patchR, ok := g.patchMenuLayout(g.pendingPatchNode); ok {
+			pt := image.Pt(x, y)
+			switch {
+			case pt.In(defendR):
+				g.applyDefend(g.pendingPatchNode)
+				g.pendingPatchNode = -1
+				return
+			case pt.In(patchR):
+				g.applyPatch(g.pendingPatchNode)
+				g.pendingPatchNode = -1
 				return
 			}
 		}
+		g.pendingPatchNode = -1
+	}
+
+	if g.patchesLeft <= 0 || !image.Pt(x, y).In(g.mapPanel.GetWidget().Rect) {
+		return
+	}
+	if idx := g.attackNodeAt(x, y); idx >= 0 {
+		g.pendingPatchNode = idx
 	}
 }
 
-// tryPatchAt patches an Attack node whose hit-disc covers (x, y); returns true on success.
-// Hit radius is slightly inflated for finger-friendly tapping on touch screens.
-func (g *Game) tryPatchAt(x, y int) bool {
+// attackNodeAt returns the index of the Attack node whose hit disc covers (x, y), or -1.
+// Hit radius is slightly inflated (hitSlackPx) for finger-friendly tapping on touch screens.
+func (g *Game) attackNodeAt(x, y int) int {
 	const hitSlackPx = 10
 	rSq := float64(nodeRadius+hitSlackPx) * float64(nodeRadius+hitSlackPx)
 	for i := range g.nodes {
@@ -298,12 +320,24 @@ func (g *Game) tryPatchAt(x, y int) bool {
 		dx := float64(x) - float64(cx)
 		dy := float64(y) - float64(cy)
 		if dx*dx+dy*dy <= rSq {
-			g.nodes[i].State = NodeStatePatched
-			g.patchesLeft--
-			return true
+			return i
 		}
 	}
-	return false
+	return -1
+}
+
+// pollJustPressedPointer returns the position of the most recent just-pressed pointer
+// (touch first to match mobile-priority), or pressed=false if no new press this frame.
+func pollJustPressedPointer() (x, y int, pressed bool) {
+	for _, id := range inpututil.AppendJustPressedTouchIDs(nil) {
+		x, y = ebiten.TouchPosition(id)
+		return x, y, true
+	}
+	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+		x, y = ebiten.CursorPosition()
+		return x, y, true
+	}
+	return 0, 0, false
 }
 
 // attackTick promotes one Normal neighbour of any Infected node to Attack, if any are left.

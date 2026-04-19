@@ -96,6 +96,7 @@ type Game struct {
 	epoch              time.Time
 	lastAttackAt       time.Time
 	lastInfectionAccum time.Time
+	lastPatchProdAt    time.Time
 
 	lastW int
 	lastH int
@@ -251,6 +252,7 @@ func newGame() (*Game, error) {
 	g.epoch = time.Now()
 	g.lastAttackAt = g.epoch
 	g.lastInfectionAccum = g.epoch
+	g.lastPatchProdAt = g.epoch
 	wireFeedScrollWheel(g)
 	return g, nil
 }
@@ -371,6 +373,10 @@ func (g *Game) Update() error {
 	if time.Since(g.lastAttackAt) >= attackInterval {
 		g.lastAttackAt = time.Now()
 		g.attackTick()
+	}
+	if time.Since(g.lastPatchProdAt) >= patchProductionInterval {
+		g.lastPatchProdAt = time.Now()
+		g.producePatches()
 	}
 	g.progressAttacks()
 	now := time.Now()

@@ -35,6 +35,14 @@ const (
 	// and a continuous drip while it remains infected. Total scale is clamped to [0, 100].
 	infectionOneShotPct = 1.0 // %, added once when a node flips Infected
 	infectionRatePerSec = 0.1 // % per infected node per second
+
+	// Patch production: every patchProductionInterval, each Security node currently in
+	// Normal state contributes +1 patch to the player's inventory.
+	patchProductionInterval = 15 * time.Second
+
+	// Visual badge for Security nodes: inner concentric ring drawn over the state fill.
+	securityInnerRadius = 13
+	securityRingW       = 3
 )
 
 // NodeState mirrors the four states from CONCEPT (Норма / Атака / Заражен / Пропатчен).
@@ -54,6 +62,9 @@ type Node struct {
 	Name  string
 	X, Y  float64
 	State NodeState
+	// Security marks nodes whose business is defense (e.g. CrowdStrike, Cisco). While in
+	// Normal state they produce patches on the global production tick.
+	Security bool
 	// Defense is the dwell time in Attack before progressAttacks flips this node to Infected.
 	// Sampled once at network creation; Phil&Tropic (already infected) leaves this zero.
 	Defense    time.Duration
@@ -74,6 +85,7 @@ var (
 	nodeStrokePatch  = color.NRGBA{R: 0x55, G: 0x55, B: 0x5a, A: 0xff}
 	edgeColor        = color.NRGBA{R: 0x40, G: 0x42, B: 0x48, A: 0xff}
 	labelColor       = color.NRGBA{R: 0xc8, G: 0xca, B: 0xd0, A: 0xff}
+	securityRingFG   = color.NRGBA{R: 0x40, G: 0xc8, B: 0xc0, A: 0xff}
 )
 
 // defaultNetwork builds the placeholder topology: the Phil&Tropic datacenter at the
@@ -83,28 +95,32 @@ var (
 func defaultNetwork() ([]Node, []Edge) {
 	const cx, cy = 0.5, 0.5
 
-	ring := []string{
-		"Sahara WS",           // AWS
-		"MacroFrame",          // Microsoft
-		"Giggle",              // Google
-		"LeatherJacket",       // NVIDIA
-		"Dongle",              // Apple
-		"BootLoop",            // CrowdStrike
-		"Fiasco Sys",          // Cisco
-		"Monolith Foundation", // Linux Foundation
-		"BroadCon",            // Broadcom
-		"GPMidas",             // JP Morgan Chase
+	ring := []struct {
+		name     string
+		security bool
+	}{
+		{"Sahara WS", false},           // AWS
+		{"MacroFrame", false},          // Microsoft
+		{"Giggle", false},              // Google
+		{"LeatherJacket", false},       // NVIDIA
+		{"Dongle", false},              // Apple
+		{"BootLoop", true},             // CrowdStrike — security vendor
+		{"Fiasco Sys", true},           // Cisco — networking + security
+		{"Monolith Foundation", false}, // Linux Foundation
+		{"BroadCon", false},            // Broadcom
+		{"GPMidas", false},             // JP Morgan Chase
 	}
 
 	nodes := make([]Node, 0, len(ring)+1)
 	nodes = append(nodes, Node{Name: "Phil&Tropic", X: cx, Y: cy, State: NodeStateInfected})
-	for i, name := range ring {
+	for i, e := range ring {
 		angle := -math.Pi/2 + 2*math.Pi*float64(i)/float64(len(ring))
 		nodes = append(nodes, Node{
-			Name:    name,
-			X:       cx + mapOuterRingRel*math.Cos(angle),
-			Y:       cy + mapOuterRingRel*math.Sin(angle),
-			Defense: defenseMin + rand.N(defenseMax-defenseMin),
+			Name:     e.name,
+			X:        cx + mapOuterRingRel*math.Cos(angle),
+			Y:        cy + mapOuterRingRel*math.Sin(angle),
+			Security: e.security,
+			Defense:  defenseMin + rand.N(defenseMax-defenseMin),
 		})
 	}
 
@@ -157,6 +173,9 @@ func (g *Game) drawNodeMap(screen *ebiten.Image) {
 		}
 		vector.FillCircle(screen, x, y, nodeRadius, fill, true)
 		vector.StrokeCircle(screen, x, y, nodeRadius, nodeStrokeW, stroke, true)
+		if n.Security {
+			vector.StrokeCircle(screen, x, y, securityInnerRadius, securityRingW, securityRingFG, true)
+		}
 	}
 
 	if g.mapLabelFace != nil {
@@ -334,6 +353,21 @@ func countInfected(nodes []Node) int {
 		}
 	}
 	return n
+}
+
+// producePatches grants +1 patch per Security node currently in Normal state. Called from
+// Update on patchProductionInterval cadence (single global timer; per-node timers would
+// reward exact-tick captures, which we don't want).
+func (g *Game) producePatches() {
+	add := 0
+	for i := range g.nodes {
+		if g.nodes[i].Security && g.nodes[i].State == NodeStateNormal {
+			add++
+		}
+	}
+	if add > 0 {
+		g.patchesLeft += add
+	}
 }
 
 func clampInfection(p float64) float64 {

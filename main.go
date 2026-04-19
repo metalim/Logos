@@ -127,13 +127,10 @@ type Game struct {
 	feedDragStartY  int
 	feedDragStartPx float64
 
-	// Game-over latch. Set by checkGameOver when infection first crosses 100%; gates the
-	// attack/infection/production sims and the attack-pulse animation. lossLine is picked
-	// once at latch time so re-runs of checkGameOver don't reroll the text mid-stream.
-	lostAt         time.Time
-	lossLine       string
-	lossLinePushed bool
-	gameOverPushed bool
+	// Endgame latch. nil until checkGameOver / triggerLoss / triggerWin fires; gates
+	// every sim system and the attack-pulse animation. Holds the pre-picked voiceover
+	// line + terminator so checkGameOver doesn't reroll the text mid-stream.
+	end *endgame
 }
 
 func loadFont(size float64) (text.Face, error) {
@@ -389,7 +386,7 @@ func (g *Game) Update() error {
 	dt := now.Sub(g.lastSimTick)
 	g.lastSimTick = now
 
-	if !g.gameLost() {
+	if !g.gameEnded() {
 		if time.Since(g.lastAttackAt) >= attackInterval {
 			g.lastAttackAt = time.Now()
 			g.attackTick()
@@ -409,6 +406,7 @@ func (g *Game) Update() error {
 		g.feedScrollNeedBottom = false
 		g.requestFeedScrollBottom()
 	}
+	g.handleDebugMenu()
 	g.handlePatchClick()
 	g.handleFeedDrag()
 	g.stepSmoothFeedScroll()
@@ -420,6 +418,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	g.drawNodeMap(screen)
 	g.drawGameOverlay(screen)
 	g.drawPatchMenu(screen)
+	g.drawDebugMenu(screen)
 }
 
 func (g *Game) Layout(_, _ int) (int, int) {

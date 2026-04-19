@@ -10,14 +10,15 @@ import (
 )
 
 const (
-	overlayHeightPx     = 24
-	overlayMarginPx     = 6
-	overlayInnerPadPx   = 8
-	overlayItemGapPx    = 6
-	infectionBarW       = 90
-	infectionBarH       = 6
-	overlayLabelFontPt = 9
-	overlayValueFontPt = 12
+	overlayHeightPx    = 60
+	overlayMarginPx    = 15
+	overlayInnerPadPx  = 20
+	overlayItemGapPx   = 15
+	overlayBorderW     = 2
+	infectionBarW      = 225
+	infectionBarH      = 15
+	overlayLabelFontPt = 23
+	overlayValueFontPt = 30
 )
 
 var (
@@ -46,7 +47,8 @@ func (g *Game) drawGameOverlay(screen *ebiten.Image) {
 	h := float32(overlayHeightPx)
 
 	vector.FillRect(screen, x, y, w, h, overlayBG, false)
-	vector.StrokeRect(screen, x+0.5, y+0.5, w-1, h-1, 1, overlayBorder, false)
+	const sw = overlayBorderW
+	vector.StrokeRect(screen, x+sw/2.0, y+sw/2.0, w-sw, h-sw, sw, overlayBorder, false)
 
 	cy := float64(y) + float64(h)/2
 

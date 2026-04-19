@@ -12,21 +12,23 @@ import (
 
 const (
 	// Horizontal inset emulating the phone's rounded-corner safe area.
-	titleBarPadX = 20
+	titleBarPadX     = 50
+	titleBarSpacingX = 15
+	titleBarStrokeW  = 2 // outline thickness for battery frame
 
 	signalBarCount = 4
-	signalBarW     = 3
-	signalBarGap   = 2
-	signalBaseH    = 4
-	signalStepH    = 3
+	signalBarW     = 8
+	signalBarGap   = 5
+	signalBaseH    = 10
+	signalStepH    = 8
 
-	batteryBodyW       = 22
-	batteryBodyH       = 10
-	batteryTipW        = 2
-	batteryTipH        = 4
+	batteryBodyW       = 55
+	batteryBodyH       = 25
+	batteryTipW        = 5
+	batteryTipH        = 10
 	batterySegments    = 4
-	batterySegInset    = 2
-	batterySegInterval = 1
+	batterySegInset    = 5
+	batterySegInterval = 3
 
 	clockTimeFormat = "15:04"
 
@@ -56,7 +58,7 @@ func populatePhoneTitleBar(bar *widget.Container, face text.Face) *widget.Text {
 	right := widget.NewContainer(
 		widget.ContainerOpts.Layout(widget.NewRowLayout(
 			widget.RowLayoutOpts.Direction(widget.DirectionHorizontal),
-			widget.RowLayoutOpts.Spacing(6),
+			widget.RowLayoutOpts.Spacing(titleBarSpacingX),
 			widget.RowLayoutOpts.Padding(&widget.Insets{Right: titleBarPadX}),
 		)),
 		widget.ContainerOpts.WidgetOpts(
@@ -112,7 +114,8 @@ func makeBatteryIcon(filledSegments int) *ebiten.Image {
 	w := batteryBodyW + batteryTipW
 	img := ebiten.NewImage(w, batteryBodyH)
 
-	vector.StrokeRect(img, 0.5, 0.5, float32(batteryBodyW)-1, float32(batteryBodyH)-1, 1, titleBarFG, false)
+	const sw = titleBarStrokeW
+	vector.StrokeRect(img, sw/2.0, sw/2.0, float32(batteryBodyW)-sw, float32(batteryBodyH)-sw, sw, titleBarFG, false)
 	vector.FillRect(img,
 		float32(batteryBodyW),
 		float32(batteryBodyH-batteryTipH)/2,

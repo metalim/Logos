@@ -14,12 +14,12 @@ import (
 )
 
 const (
-	nodeRadius      = 11
-	nodeStrokeW     = 2
-	edgeStrokeW     = 1
-	nodeLabelGapY   = 3 // px between node circle bottom and label top
-	mapPaddingPx    = 10
-	mapLabelFontPt  = 9
+	nodeRadius      = 28
+	nodeStrokeW     = 5
+	edgeStrokeW     = 3
+	nodeLabelGapY   = 8 // px between node circle bottom and label top
+	mapPaddingPx    = 25
+	mapLabelFontPt  = 23
 	mapOuterRingRel = 0.36 // ring radius relative to min(innerW, innerH)/2
 
 	attackInterval       = 3 * time.Second
@@ -253,7 +253,7 @@ func (g *Game) handlePatchClick() {
 // tryPatchAt patches an Attack node whose hit-disc covers (x, y); returns true on success.
 // Hit radius is slightly inflated for finger-friendly tapping on touch screens.
 func (g *Game) tryPatchAt(x, y int) bool {
-	const hitSlackPx = 4
+	const hitSlackPx = 10
 	rSq := float64(nodeRadius+hitSlackPx) * float64(nodeRadius+hitSlackPx)
 	for i := range g.nodes {
 		if g.nodes[i].State != NodeStateAttack {

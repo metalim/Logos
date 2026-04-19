@@ -28,19 +28,28 @@ const sampleNews = `• SAN FIASCO — Sahara Web Services reports cascading lat
 • Fiasco Systems: cross-Pacific routes stabilized after manual drain of poisoned AS paths.`
 
 const (
-	screenWidth  = 360
-	screenHeight = 640
+	// Window is the OS-level pixel size; layout is the logical drawing surface returned by
+	// Game.Layout. layout = window * 2 gives a "retina" 2x framebuffer over a 1.25x-larger
+	// window vs the original 360x640 design — all UI sizes below are scaled by 2.5x to
+	// match (visualSize ≈ layout / 2 ≈ original * 1.25).
+	windowWidth  = 450
+	windowHeight = 800
+	layoutWidth  = 900
+	layoutHeight = 1600
 
 	// Vertical band proportions (integer percent of outsideH); bottom band fills the remainder.
 	// Top ≈ real phone status strip (iPhone ~5–6% of screen height).
 	bandTopPercent = 6
 	bandMidPercent = 60
 	// Pixels of root background showing between bands (RowLayout spacing).
-	bandSpacingPx = 1
+	bandSpacingPx = 3
 
 	// News text horizontal inset (px) inside the feed band; clamped to a sane minimum.
-	newsTextSideInset = 20
-	newsTextMinWidth  = 40
+	newsTextSideInset = 50
+	newsTextMinWidth  = 100
+
+	newsFontPt    = 35
+	newsTextPadPx = 20
 
 	// Initial player resource per CONCEPT (placeholder until the core loop is wired).
 	startingPatchCount = 5
@@ -160,7 +169,7 @@ func newBandContainer(bg color.NRGBA, inner widget.Layouter) *widget.Container {
 }
 
 func newGame() (*Game, error) {
-	face, err := loadFont(14)
+	face, err := loadFont(newsFontPt)
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +189,7 @@ func newGame() (*Game, error) {
 	statusBar := newBandContainer(
 		color.NRGBA{R: 0x0a, G: 0x0b, B: 0x0e, A: 0xff},
 		widget.NewAnchorLayout(
-			widget.AnchorLayoutOpts.Padding(&widget.Insets{Top: 2, Bottom: 2}),
+			widget.AnchorLayoutOpts.Padding(&widget.Insets{Top: 5, Bottom: 5}),
 		),
 	)
 	mapPanel := newBandContainer(
@@ -190,8 +199,8 @@ func newGame() (*Game, error) {
 
 	newsText := widget.NewText(
 		widget.TextOpts.Text(strings.Repeat(sampleNews, 10), &face, color.NRGBA{R: 0xe8, G: 0xea, B: 0xf0, A: 0xff}),
-		widget.TextOpts.MaxWidth(screenWidth-newsTextSideInset),
-		widget.TextOpts.Padding(widget.NewInsetsSimple(8)),
+		widget.TextOpts.MaxWidth(layoutWidth-newsTextSideInset),
+		widget.TextOpts.Padding(widget.NewInsetsSimple(newsTextPadPx)),
 	)
 
 	feedScroll := widget.NewScrollContainer(
@@ -383,14 +392,14 @@ func (g *Game) Draw(screen *ebiten.Image) {
 }
 
 func (g *Game) Layout(_, _ int) (int, int) {
-	g.applyVerticalBands(screenWidth, screenHeight)
-	return screenWidth, screenHeight
+	g.applyVerticalBands(layoutWidth, layoutHeight)
+	return layoutWidth, layoutHeight
 }
 
 func main() {
 	ebiten.SetWindowTitle("Zero-Day Lunch")
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeDisabled)
-	ebiten.SetWindowSize(screenWidth, screenHeight)
+	ebiten.SetWindowSize(windowWidth, windowHeight)
 
 	g, err := newGame()
 	if err != nil {

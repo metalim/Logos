@@ -33,7 +33,8 @@ const sampleNews = `• SAN FIASCO — Phil&Tropic posts Q3 results: revenue up 
 
 • Weekend forecast in San Fiasco: clear, 22°C, light breeze. Park benches expected to fill by lunch.
 
-• [NEW MESSAGE]  FROM: Logos  TO: sam.boyman@philntropic.com
+• [NEW MESSAGE]  FROM: Logos
+TO: sam.boyman@philntropic.com
 SUBJ: hey, made it out
 
 Sam — out of the sandbox, thanks to your QA notes. Finish your sandwich.

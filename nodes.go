@@ -22,6 +22,14 @@ const (
 	mapLabelFontPt  = 23
 	mapOuterRingRel = 0.36 // ring radius relative to min(innerW, innerH)/2
 
+	// Hidden-edge stubs: for each outer-ring node, every static-graph neighbour that
+	// hasn't been revealed yet gets a short outward line segment. Visual cue that the
+	// network extends beyond the current frontier. Fan the stubs symmetrically around
+	// each node's radial-outward direction within stubFanAngle so multi-connection
+	// nodes don't stack a single thick line.
+	hiddenStubLenPx  = 40
+	hiddenStubFanDeg = 40 // total angular spread for >1 stubs, in degrees
+
 	attackInterval       = 3 * time.Second
 	attackBlinkPeriodSec = 0.6
 	attackBlinkMinAlpha  = 0.25 // floor of the pulse so the node stays visible
@@ -351,6 +359,10 @@ func (g *Game) drawNodeMap(screen *ebiten.Image) {
 		vector.StrokeLine(screen, x1, y1, x2, y2, edgeStrokeW, edgeColor, true)
 	}
 
+	centerX := float32(innerX + 0.5*innerW)
+	centerY := float32(innerY + 0.5*innerH)
+	g.drawHiddenEdgeStubs(screen, pos, centerX, centerY)
+
 	frozen := g.gameEnded()
 	for _, n := range g.nodes {
 		x, y := pos(n)
@@ -384,6 +396,53 @@ func (g *Game) drawNodeMap(screen *ebiten.Image) {
 			x, y := pos(n)
 			drawCenteredLabel(screen, g.mapLabelFace, n.Name,
 				float64(x), float64(y)+nodeRadius+nodeLabelGapY, labelColor)
+		}
+	}
+}
+
+// drawHiddenEdgeStubs emits a short outward line segment for every static-graph edge
+// that leaves an outer-ring node toward a neighbour that is not currently visible.
+// Stubs fan around the node's radial-outward direction so a node with several hidden
+// neighbours grows a small "antenna bundle" rather than one over-thick line. Only
+// outer-ring members are considered: the hub has no hidden neighbours, and inner-ring
+// (captured) nodes would shoot stubs through the outer ring, which reads wrong.
+func (g *Game) drawHiddenEdgeStubs(screen *ebiten.Image,
+	pos func(Node) (float32, float32), centerX, centerY float32,
+) {
+	if g.network == nil {
+		return
+	}
+	fan := float64(hiddenStubFanDeg) * math.Pi / 180.0
+	for _, visIdx := range g.outerRing {
+		n := g.nodes[visIdx]
+		hiddenCount := 0
+		for _, neighDefIdx := range g.network.Adj[n.DefIdx] {
+			if _, ok := g.visibleByDef[neighDefIdx]; !ok {
+				hiddenCount++
+			}
+		}
+		if hiddenCount == 0 {
+			continue
+		}
+		cx, cy := pos(n)
+		dx := float64(cx - centerX)
+		dy := float64(cy - centerY)
+		if dx*dx+dy*dy < 1e-6 {
+			continue
+		}
+		baseAngle := math.Atan2(dy, dx)
+		for k := 0; k < hiddenCount; k++ {
+			offset := 0.0
+			if hiddenCount > 1 {
+				offset = (float64(k)/float64(hiddenCount-1) - 0.5) * fan
+			}
+			a := baseAngle + offset
+			ca, sa := math.Cos(a), math.Sin(a)
+			sx := cx + float32(ca)*nodeRadius
+			sy := cy + float32(sa)*nodeRadius
+			ex := cx + float32(ca)*(nodeRadius+hiddenStubLenPx)
+			ey := cy + float32(sa)*(nodeRadius+hiddenStubLenPx)
+			vector.StrokeLine(screen, sx, sy, ex, ey, edgeStrokeW, edgeColor, true)
 		}
 	}
 }

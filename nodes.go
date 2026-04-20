@@ -644,6 +644,7 @@ func (g *Game) handlePatchClick() {
 	}
 	if idx := g.attackNodeAt(x, y); idx >= 0 {
 		g.pendingPatchNode = idx
+		playSFX(sfxBlipPCM)
 	}
 }
 
@@ -805,6 +806,7 @@ func (g *Game) accumulateProduction(dt time.Duration) {
 			g.nodes[i].ProductionElapsed -= patchProductionInterval
 			g.patchesLeft++
 			g.patchFloats = append(g.patchFloats, patchFloat{visIdx: i, spawnedAt: time.Now()})
+			playSFX(sfxPickupPCM)
 		}
 	}
 }

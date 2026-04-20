@@ -82,6 +82,7 @@ func (g *Game) applyPatch(nodeIdx int) {
 	g.nodes[nodeIdx].State = NodeStatePatched
 	g.patchesLeft--
 	g.pushNews(g.pickPatchNews(nodeIdx))
+	playSFX(sfxBoomPCM)
 }
 
 // pickPatchNews returns a randomly chosen consequence line for the given visible node,
@@ -112,6 +113,7 @@ func (g *Game) applyDefend(nodeIdx int) {
 	g.nodes[nodeIdx].State = NodeStateNormal
 	g.nodes[nodeIdx].AttackedAt = time.Time{}
 	g.patchesLeft--
+	playSFX(sfxPowerPCM)
 }
 
 func (g *Game) canSpendPatchOn(nodeIdx int) bool {

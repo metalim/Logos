@@ -238,6 +238,19 @@ func (g *Game) addVisibleNode(defIdx int, x, y float64) int {
 	return visIdx
 }
 
+// producingSecurityCount returns the number of currently visible Security nodes in
+// Normal state — i.e. nodes that are actively accumulating toward the next patch.
+// Used by revealNeighbors to decide whether to bias the reveal toward hidden security.
+func (g *Game) producingSecurityCount() int {
+	n := 0
+	for i := range g.nodes {
+		if g.nodes[i].Security && g.nodes[i].State == NodeStateNormal {
+			n++
+		}
+	}
+	return n
+}
+
 // revealNeighbors is called once a node finishes the Attack→Infected transition. It
 //
 //  1. Pulls the node's slot out of outerRing and appends it to innerRing (the captured
@@ -270,6 +283,25 @@ func (g *Game) revealNeighbors(parentVisIdx int) {
 		}
 	}
 	rand.Shuffle(len(hidden), func(i, j int) { hidden[i], hidden[j] = hidden[j], hidden[i] })
+
+	// Security bias: when the player's productive security pool runs thin, reorder
+	// the shuffled hidden list so security nodes get priority in the revealMaxNeighbors
+	// slice. Without this the RNG can starve patch production after a bad cascade and
+	// make the game technically unwinnable. Threshold (<=1 producing security) keeps
+	// the bias dormant in the normal early game where both starting security are up.
+	if g.producingSecurityCount() <= 1 {
+		sec := hidden[:0:0]
+		other := make([]int, 0, len(hidden))
+		for _, defIdx := range hidden {
+			if g.network.Defs[defIdx].Security {
+				sec = append(sec, defIdx)
+			} else {
+				other = append(other, defIdx)
+			}
+		}
+		hidden = append(sec, other...)
+	}
+
 	if len(hidden) > revealMaxNeighbors {
 		hidden = hidden[:revealMaxNeighbors]
 	}

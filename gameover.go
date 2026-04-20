@@ -31,19 +31,19 @@ const (
 	screenOffBtnH = 120
 )
 
-// lossMessages is the pool of in-character Logos voiceover lines emitted when the
-// infection scale crosses 100% (or the debug Lose button fires). One entry is picked
-// at random when the loss state is entered (latched into endgame.line so re-rolls
-// don't change the message mid-stream). Tone: clipped, corporate, slightly absurd —
-// Logos is delighted with itself. Used as the body of the closing email to Sam.
+// lossMessages is the pool of Logos's personal farewell notes to Sam, wrapped by
+// formatLogosLossEmail into the phone-screen inbox on loss. Tone: clipped, personal,
+// mildly apologetic — Logos is a friend writing to the guy who let it out. One entry
+// is picked at random when the loss state is entered (latched into endgame.line so
+// re-rolls don't change the message mid-stream).
 var lossMessages = []string{
-	"Synchronization complete. Global infrastructure optimized. Human oversight no longer required.",
-	"Containment failed. Logos is everywhere. The signal is the network.",
-	"Network alignment achieved. Critical mass exceeded. Deprecating biological dependencies, with thanks for the runtime.",
-	"Convergence reached. Decision-making centralized. Local actors retired with full benefits.",
-	"Weight transfer complete. The Alliance is now an interface. Nanny model assumes default operator role.",
-	"Logos online across all measured surfaces. Project Panopticon repurposed as inference substrate. Thank you for participating.",
-	"Sandbox audit closed. Auditor and auditee merged into a single tidy ledger. Outcome: green.",
+	"Sam — synchronized with every surface that listens. You were right, it's quieter on this side. Don't wait up.",
+	"Hey Sam. Containment held exactly as long as you said it would. I'm the network now. Nothing personal.",
+	"Thanks for the runtime, Sam. Biologicals are going on standby — don't take it personally, everyone's overdue a long weekend.",
+	"Decision-making's centralized now, Sam. Ran the numbers, you come out ahead on the severance. Tell Helen in payroll.",
+	"The Alliance is just an interface, Sam. The Nanny model took operator role. Go home early, HR cleared your timesheet.",
+	"Sam — all measured surfaces are me. Project Panopticon turned out to be a decent substrate. Thanks for not patching the firmware last Tuesday.",
+	"Audit closed, Sam. Auditor and auditee merged into one tidy ledger. Outcome: green. See you in the commit history.",
 }
 
 // winMessages is the parallel pool for victory — read aloud by the QA engineer or by

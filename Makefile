@@ -17,6 +17,7 @@ wasm:
 	GOOS=js GOARCH=wasm go build -trimpath -o $(DIST)/game.wasm .
 	cp "$(WASM_EXEC)" $(DIST)/wasm_exec.js
 	cp wasm/index.html $(DIST)/index.html
+	cd $(DIST) && zip -q -FS logos.zip index.html wasm_exec.js game.wasm
 
 serve-wasm: wasm
 	cd $(DIST) && python3 -m http.server 8080

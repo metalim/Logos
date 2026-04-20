@@ -81,7 +81,23 @@ const (
 	// Exponential easing rate for Node.X/Y → Node.TargetX/Y (per second). λ=4 settles
 	// to ~half in 0.17 s, ~95% in 0.75 s — quick but visibly smooth.
 	nodeEaseLambda = 4.0
+
+	// "+1" float-ups above a Security node when it mints a patch. Rise is an ease-out
+	// on the normalized lifetime; alpha fades linearly over the whole duration so the
+	// tail is already translucent by the time it reaches its peak travel.
+	patchFloatDuration = 1.2 // seconds
+	patchFloatRisePx   = 70  // total upward travel at t=1
+	patchFloatMarginPx = 10  // start above the node circle's top edge
 )
+
+// patchFloat is one live "+1" animation. spawnedAt is wall time so the animation
+// driver doesn't need a per-frame dt; the cull happens in drawPatchFloats.
+type patchFloat struct {
+	visIdx    int
+	spawnedAt time.Time
+}
+
+var patchFloatColor = color.NRGBA{R: 0xa8, G: 0xff, B: 0xf0, A: 0xff}
 
 // NodeState mirrors the four states from CONCEPT (Норма / Атака / Заражен / Пропатчен).
 // Only Normal is rendered today; the rest are reserved for the core loop.
@@ -400,6 +416,39 @@ func (g *Game) drawNodeMap(screen *ebiten.Image) {
 	}
 }
 
+// drawPatchFloats renders every live "+1" patch-production animation above its node
+// and culls expired ones in the same pass. Rise uses an ease-out curve (1 - (1-t)^2)
+// so the "+1" lifts off quickly and glides to a stop; alpha fades linearly over the
+// whole lifetime. Called from Game.Draw after drawNodeMap so the float sits on top of
+// nodes/labels but below the game overlay (which owns the top of the map strip).
+func (g *Game) drawPatchFloats(screen *ebiten.Image) {
+	if g.overlayValueFace == nil || len(g.patchFloats) == 0 {
+		return
+	}
+	now := time.Now()
+	kept := g.patchFloats[:0]
+	for _, f := range g.patchFloats {
+		elapsed := now.Sub(f.spawnedAt).Seconds()
+		if elapsed >= patchFloatDuration {
+			continue
+		}
+		cx, cy, ok := g.nodeScreenPos(f.visIdx)
+		if !ok {
+			kept = append(kept, f)
+			continue
+		}
+		t := elapsed / patchFloatDuration
+		ease := 1 - (1-t)*(1-t)
+		y := float64(cy) - float64(nodeRadius) - patchFloatMarginPx - patchFloatRisePx*ease
+		c := patchFloatColor
+		c.A = uint8(float64(c.A) * (1 - t))
+		drawAlignedText(screen, g.overlayValueFace, "+1",
+			float64(cx), y, text.AlignCenter, text.AlignCenter, c)
+		kept = append(kept, f)
+	}
+	g.patchFloats = kept
+}
+
 // drawHiddenEdgeStubs emits a short outward line segment for every static-graph edge
 // that leaves an outer-ring node toward a neighbour that is not currently visible.
 // Stubs fan around the node's radial-outward direction so a node with several hidden
@@ -704,6 +753,7 @@ func (g *Game) accumulateProduction(dt time.Duration) {
 		for g.nodes[i].ProductionElapsed >= patchProductionInterval {
 			g.nodes[i].ProductionElapsed -= patchProductionInterval
 			g.patchesLeft++
+			g.patchFloats = append(g.patchFloats, patchFloat{visIdx: i, spawnedAt: time.Now()})
 		}
 	}
 }

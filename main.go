@@ -123,6 +123,11 @@ type Game struct {
 	containmentElapsed float64
 	patchesLeft        int
 
+	// patchFloats holds short-lived "+1" animations spawned above a Security node every
+	// time it mints a patch. Each entry advances on wall time and is culled when its
+	// elapsed lifetime crosses patchFloatDuration. Cleared on restart.
+	patchFloats []patchFloat
+
 	// Index of the Attack node whose patch menu is currently shown, or -1 for none.
 	pendingPatchNode int
 
@@ -296,6 +301,7 @@ func (g *Game) resetGameState() {
 	g.containmentPct = 0
 	g.containmentElapsed = 0
 	g.patchesLeft = startingPatchCount
+	g.patchFloats = g.patchFloats[:0]
 	g.pendingPatchNode = -1
 	g.end = nil
 	now := time.Now()
@@ -469,6 +475,7 @@ func (g *Game) Update() error {
 func (g *Game) Draw(screen *ebiten.Image) {
 	g.ui.Draw(screen)
 	g.drawNodeMap(screen)
+	g.drawPatchFloats(screen)
 	g.drawGameOverlay(screen)
 	g.drawPatchMenu(screen)
 	g.drawDebugMenu(screen)

@@ -393,5 +393,5 @@ Battery state is fully part of `Game` (`batteryIcon *widget.Graphic`, `batterySe
 | `assets/cover 9x16.jpg` | Title screen cover, embedded |
 | `assets/neon firewall.mp3` | In-game loop track, embedded |
 | `assets/sfx/{blip,boom,power,pickup,drain,email}.wav` | SFX one-shots, embedded |
-| `wasm/index.html` | WASM shell copied to `dist/wasm/`; includes a streaming loader (progress bar + MB readout). Uses `Content-Length` when the server exposes it; otherwise falls back to `WASM_EXPECTED_BYTES = 26 MiB` and caps the displayed fraction at `0.99` until the stream ends so the bar still advances on gzip/CDN setups that strip the header. Status text marks estimated mode with `~` (`loading X.X / ~Y.Y MB`). |
+| `wasm/index.html` | WASM shell copied to `dist/wasm/`; includes a streaming loader (progress bar + MB readout). Uses `Content-Length` when the server exposes it; otherwise falls back to `WASM_EXPECTED_BYTES = 29 MiB` and caps the displayed fraction at `0.99` until the stream ends so the bar still advances on gzip/CDN setups that strip the header. Status text marks estimated mode with `~` (`loading X.X / ~Y.Y MB`). |
 | `Makefile` | `build`, `wasm`, `serve-wasm`, `clean` |

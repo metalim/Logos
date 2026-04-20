@@ -16,6 +16,12 @@ import (
 //go:embed "assets/neon firewall.mp3"
 var musicBytes []byte
 
+// creditsMusicBytes holds the looping track that plays over the credits roll.
+// Distinct from the in-game loop so the credits have their own theme (downtempo
+// aftermath rather than the active-play synthwave).
+//go:embed "assets/ashes in chrome.mp3"
+var creditsMusicBytes []byte
+
 // SFX blobs. Filenames match bfxr export conventions: silent placeholders live in
 // the repo so the build never breaks; drop real wavs in-place to replace them.
 //
@@ -114,13 +120,24 @@ func playSFX(pcm []byte) {
 }
 
 // startMusic (re)creates an infinite-loop MP3 player for the in-game track and starts
-// playback. Any previously running player is closed first so a restart doesn't leave
-// a detached player running in the background. Errors are logged and swallowed —
-// music is ambiance, not gameplay, and we don't want a decode hiccup to kill the run.
-func (g *Game) startMusic() {
+// playback. Thin wrapper over playLoopingMP3.
+func (g *Game) startMusic() { g.playLoopingMP3(musicBytes) }
+
+// startCreditsMusic starts the credits-roll loop (ashes in chrome). Same lifecycle
+// slot as the in-game music — stopMusic / restart will close it cleanly.
+func (g *Game) startCreditsMusic() { g.playLoopingMP3(creditsMusicBytes) }
+
+// playLoopingMP3 decodes the given MP3 blob and starts an infinite-loop player in
+// g.musicPlayer, replacing any previously active player. Errors are logged and
+// swallowed — music is ambiance, not gameplay, and we don't want a decode hiccup
+// to kill the run.
+func (g *Game) playLoopingMP3(data []byte) {
 	g.stopMusic()
+	if len(data) == 0 {
+		return
+	}
 	ctx := ensureAudioCtx()
-	stream, err := mp3.DecodeWithSampleRate(audioSampleRate, bytes.NewReader(musicBytes))
+	stream, err := mp3.DecodeWithSampleRate(audioSampleRate, bytes.NewReader(data))
 	if err != nil {
 		log.Printf("music: decode failed: %v", err)
 		return

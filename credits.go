@@ -25,16 +25,16 @@ const (
 	creditsStatsFontPt    = 30
 	// creditsBlockLineGap is the default extra pixel gap after each line; larger
 	// values are injected by creditsGapBefore between semantic sections.
-	creditsBlockLineGap   = 6
-	creditsSectionGap     = 42
-	creditsFinalGap       = 90 // extra breathing room above "Thanks for playing"
-	creditsTitleGapBelow  = 60
-	creditsStatsTopGap    = 70 // gap between the final line and the stats block
-	creditsStatsLineGap   = 14
-	creditsButtonGap      = 80 // gap between the stats block and the Try again button
-	creditsButtonW        = 360
-	creditsButtonH        = 104
-	creditsButtonStrokeW  = 2
+	creditsBlockLineGap  = 6
+	creditsSectionGap    = 42
+	creditsFinalGap      = 90 // extra breathing room above "Thanks for playing"
+	creditsTitleGapBelow = 60
+	creditsStatsTopGap   = 70 // gap between the final line and the stats block
+	creditsStatsLineGap  = 14
+	creditsButtonGap     = 80 // gap between the stats block and the Try again button
+	creditsButtonW       = 360
+	creditsButtonH       = 104
+	creditsButtonStrokeW = 2
 	// creditsParkOffsetY is where the baseline of the "Thanks for playing" line
 	// settles once the scroll parks — measured from the top of the layout.
 	creditsParkOffsetY = layoutHeight / 4
@@ -67,7 +67,7 @@ var creditsEntries = []creditEntry{
 	{"Opus 4.7", creditKindBody},
 
 	{"Music", creditKindHeader},
-	{"Suno 4.5", creditKindBody},
+	{"Suno 4.5, 5.5", creditKindBody},
 
 	{"Sounds", creditKindHeader},
 	{"Bfxr", creditKindBody},
@@ -199,7 +199,8 @@ func (g *Game) creditsLayout() (offsets []float64, total float64) {
 }
 
 // startCredits enters the credit-roll mode. Freezes the sim (Update short-circuits)
-// and stops music so the scroll plays in silence. Idempotent.
+// and swaps the in-game loop for the credits theme (ashes in chrome) so the scroll
+// has its own music bed. Idempotent.
 func (g *Game) startCredits() {
 	if g.showingCredits {
 		return
@@ -207,7 +208,7 @@ func (g *Game) startCredits() {
 	g.showingCredits = true
 	g.creditsStartedAt = time.Now()
 	g.creditsSkipped = false
-	g.stopMusic()
+	g.startCreditsMusic()
 }
 
 // creditsScrollState returns the current block-top Y (in screen coords) and whether

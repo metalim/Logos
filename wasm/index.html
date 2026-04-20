@@ -44,7 +44,7 @@
 		// chunked). Pick a value slightly above the real build so the bar doesn't reach
 		// 100% before the stream actually ends; the post-download clamp to 1.0 happens
 		// unconditionally on the "initializing…" step.
-		const WASM_EXPECTED_BYTES = 26 * 1048576;
+		const WASM_EXPECTED_BYTES = 29 * 1048576;
 		(async () => {
 			const loader = document.getElementById("loader");
 			const fill = document.getElementById("loaderFill");

@@ -41,7 +41,7 @@ const (
 
 	// Infection-scale accumulation: each Infected node adds a one-time bump on transition
 	// and a continuous drip while it remains infected. Total scale is clamped to [0, 100].
-	infectionOneShotPct = 1.0 // %, added once when a node flips Infected
+	infectionOneShotPct = 0.5 // %, added once when a node flips Infected
 	infectionRatePerSec = 0.1 // % per infected node per second
 
 	// Containment is the win-side counter. The rate starts at containmentRatePerSec and
@@ -152,6 +152,7 @@ var (
 	nodeFillPatched    = color.NRGBA{R: 0x10, G: 0x10, B: 0x12, A: 0xff}
 	nodeStrokePatch    = color.NRGBA{R: 0x55, G: 0x55, B: 0x5a, A: 0xff}
 	edgeColor          = color.NRGBA{R: 0x40, G: 0x42, B: 0x48, A: 0xff}
+	edgeSecurityColor  = color.NRGBA{R: 0x2e, G: 0x82, B: 0x7c, A: 0xff}
 	labelColor         = color.NRGBA{R: 0xc8, G: 0xca, B: 0xd0, A: 0xff}
 	securityRingFG     = color.NRGBA{R: 0x40, G: 0xc8, B: 0xc0, A: 0xff}
 	securityProgressFG = color.NRGBA{R: 0xa8, G: 0xff, B: 0xf0, A: 0xff}
@@ -494,15 +495,20 @@ func (g *Game) drawHiddenEdgeStubs(screen *ebiten.Image,
 		return
 	}
 	fan := float64(hiddenStubFanDeg) * math.Pi / 180.0
+	// Two-pass: render non-security stubs first, then security stubs on top so the
+	// teal highlight survives visual overlap with neutral stubs of the same node.
+	type stub struct{ sx, sy, ex, ey float32 }
+	var neutral, secure []stub
+	var hiddenDefs []int
 	for _, visIdx := range g.outerRing {
 		n := g.nodes[visIdx]
-		hiddenCount := 0
+		hiddenDefs = hiddenDefs[:0]
 		for _, neighDefIdx := range g.network.Adj[n.DefIdx] {
 			if _, ok := g.visibleByDef[neighDefIdx]; !ok {
-				hiddenCount++
+				hiddenDefs = append(hiddenDefs, neighDefIdx)
 			}
 		}
-		if hiddenCount == 0 {
+		if len(hiddenDefs) == 0 {
 			continue
 		}
 		cx, cy := pos(n)
@@ -512,19 +518,32 @@ func (g *Game) drawHiddenEdgeStubs(screen *ebiten.Image,
 			continue
 		}
 		baseAngle := math.Atan2(dy, dx)
-		for k := 0; k < hiddenCount; k++ {
+		count := len(hiddenDefs)
+		for k, defIdx := range hiddenDefs {
 			offset := 0.0
-			if hiddenCount > 1 {
-				offset = (float64(k)/float64(hiddenCount-1) - 0.5) * fan
+			if count > 1 {
+				offset = (float64(k)/float64(count-1) - 0.5) * fan
 			}
 			a := baseAngle + offset
 			ca, sa := math.Cos(a), math.Sin(a)
-			sx := cx + float32(ca)*nodeRadius
-			sy := cy + float32(sa)*nodeRadius
-			ex := cx + float32(ca)*(nodeRadius+hiddenStubLenPx)
-			ey := cy + float32(sa)*(nodeRadius+hiddenStubLenPx)
-			vector.StrokeLine(screen, sx, sy, ex, ey, edgeStrokeW, edgeColor, true)
+			s := stub{
+				sx: cx + float32(ca)*nodeRadius,
+				sy: cy + float32(sa)*nodeRadius,
+				ex: cx + float32(ca)*(nodeRadius+hiddenStubLenPx),
+				ey: cy + float32(sa)*(nodeRadius+hiddenStubLenPx),
+			}
+			if g.network.Defs[defIdx].Security {
+				secure = append(secure, s)
+			} else {
+				neutral = append(neutral, s)
+			}
 		}
+	}
+	for _, s := range neutral {
+		vector.StrokeLine(screen, s.sx, s.sy, s.ex, s.ey, edgeStrokeW, edgeColor, true)
+	}
+	for _, s := range secure {
+		vector.StrokeLine(screen, s.sx, s.sy, s.ex, s.ey, edgeStrokeW, edgeSecurityColor, true)
 	}
 }
 

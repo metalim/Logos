@@ -190,6 +190,14 @@ type Game struct {
 	// flushPendingNews pushes the ones whose `at` timestamp has passed. Lets patch
 	// consequences (and anything else we want delayed) land a beat after the event.
 	pendingNews []pendingNewsItem
+
+	// Settings dropdown state. showSettings is the open/closed latch for the
+	// Music / Sound menu anchored under the titlebar's hamburger button.
+	// muteMusic drives g.musicPlayer.SetVolume(0/1); muteSFX is mirrored to the
+	// package-level sfxMuted so playSFX can short-circuit without a *Game.
+	showSettings bool
+	muteMusic    bool
+	muteSFX      bool
 }
 
 type pendingNewsItem struct {
@@ -567,6 +575,15 @@ func (g *Game) Update() error {
 		g.feedScrollNeedBottom = false
 		g.requestFeedScrollBottom()
 	}
+	if g.handleSettingsMenu() {
+		// A tap consumed by the settings UI never falls through to nodes / patch
+		// menu / feed drag on the same frame, so the menu can overlap the map
+		// area without opening an Attack's patch menu behind it.
+		g.handleFeedDrag()
+		g.stepSmoothFeedScroll()
+		g.flushPendingNews()
+		return nil
+	}
 	g.handleDebugMenu()
 	g.handlePatchClick()
 	g.handleFeedDrag()
@@ -595,6 +612,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	g.drawHint(screen)
 	g.drawPatchMenu(screen)
 	g.drawDebugMenu(screen)
+	g.drawSettingsMenu(screen)
 }
 
 func (g *Game) Layout(_, _ int) (int, int) {

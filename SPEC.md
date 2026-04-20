@@ -43,6 +43,22 @@ Percents are constants (`bandTopPercent = 6`, `bandMidPercent = 60`); bottom ban
   - **Battery:** outlined body (`batteryBodyW × batteryBodyH = 55×25`, `titleBarStrokeW = 2` px outline centered on the rect edge) with `batteryTipW × batteryTipH = 5×10` tip on the right; inside, `batterySegments = 4` filled cells (`batterySegInset = 5`, `batterySegInterval = 3`).
 - Game-state header (infection %, patches) is **not** in this bar — it lives as the [game-state overlay](#game-state-overlay-top-of-map) on top of the map.
 
+## Settings menu (titlebar)
+
+`settings_menu.go` draws a hamburger button centered in the status strip that opens a small dropdown with Music / Sound toggles. State lives on `Game` (`showSettings`, `muteMusic`, `muteSFX`) and persists across `resetGameState` / `restart` — the player's audio preferences are treated as session-wide settings, not per-run.
+
+- **Button:** `menuBtnSize = 52` px square, bordered, with three horizontal bars (`menuBtnBarH = 4`, `menuBtnBarGap = 8`, `menuBtnBarInset = 12`). When the dropdown is open the button background swaps to `menuBtnBGActive` so the user can see the menu is latched.
+- **Dropdown:** `menuDropdownW = 360` px wide, height = `2·menuRowH + menuRowDividerH + 2·menuDropdownPadY`. Anchored `menuDropdownGap = 8` below the button, horizontally centered on the button's x-axis.
+- **Rows:** two equal rows (`menuRowH = 72`) separated by a thin divider. Each row renders a label (`Music` / `Sound`) left-aligned with `menuRowPadX = 24` inset and a `menuTogglePillW × menuTogglePillH = 92×40` pill on the right (green `ON` when enabled, slate `OFF` when muted).
+- **Input:** `handleSettingsMenu` is called in `Update` after the UI update and **before** `handleDebugMenu` / `handlePatchClick`. When the menu is open it captures the entire frame's tap:
+  - Tap on the button → close.
+  - Tap on a row → toggle that row's setting, menu stays open.
+  - Tap anywhere else → close.
+  In all three cases `handleSettingsMenu` returns `true`, `Update` skips the remaining click handlers (debug menu / patch menu / node clicks) and returns early, so a menu tap never falls through to the map behind it. When the menu is closed, the function only consumes taps that land on the hamburger button itself; everything else falls through to the normal input path.
+- **Music mute:** `toggleMusicMute` flips `muteMusic` and calls `applyMusicVolume`, which pushes `SetVolume(0)` or `SetVolume(1)` onto the active `musicPlayer`. The infinite-loop stream keeps running either way, so un-muting is instant with no re-decode. `playLoopingMP3` (the shared `startMusic` / `startCreditsMusic` backend in `audio.go`) calls `applyMusicVolume` right after `p.Play()`, so a track that starts while the player is muted (e.g. toggled during the title screen before `dismissTitle`, or on the win-path before `startCreditsMusic`) comes up silent and respects a later un-mute.
+- **SFX mute:** `toggleSFXMute` flips `muteSFX` and mirrors it to the package-level `sfxMuted` in `audio.go`. `playSFX` short-circuits when `sfxMuted` is true, so future one-shots are suppressed. In-flight `audio.Player`s are left to finish their current sample — cutting a short bleep mid-wave is both audible and avoidable.
+- **Draw order:** `drawSettingsMenu` runs last in `Game.Draw`, after `drawDebugMenu`, so the button and (when open) the panel sit above everything else including the debug overlay.
+
 ## Node map (middle band)
 
 - **Rendering:** custom draw on top of `ui.Draw` in `Game.Draw`, clipped visually to `mapPanel.GetWidget().Rect`. The `mapPanel` itself stays an empty styled container — it only provides the layout rectangle.
@@ -379,8 +395,9 @@ When enabled, `debug_menu.go` draws four buttons (`Credits`, `Win`, `Restart`, `
 |------|------|
 | `main.go` | Game struct, UI tree, bands, feed scroll, `pushNews`, `resetGameState`/`restart`, sim tick (`lastSimTick` → `accumulateInfection` + `accumulateProduction` + `accumulateContainment` + `easeNodes`), `Update`/`Draw`/`Layout` wiring |
 | `titlebar.go` | Phone-style title bar (clock + signal + 5G + battery icons via `vector`); `populatePhoneTitleBar` returns both the clock `Text` and the battery `Graphic` so the loss sequence can animate the segments |
+| `settings_menu.go` | Titlebar hamburger button + Music / Sound dropdown; `handleSettingsMenu` (pre-debug-menu, consumes taps while open) and `drawSettingsMenu` (on top of everything); `toggleMusicMute` via `SetVolume`, `toggleSFXMute` via the `sfxMuted` package flag |
 | `title.go` | Cover splash screen: embedded `assets/cover 9x16.jpg`, `handleTitleScreen`/`dismissTitle`/`drawTitleScreen`; dismiss re-stamps sim clocks and starts music |
-| `audio.go` | `audio.Context` singleton, music player lifecycle (`startMusic`/`stopMusic`, infinite-loop MP3), SFX PCM decode + `playSFX` one-shots |
+| `audio.go` | `audio.Context` singleton, music player lifecycle (`startMusic`/`stopMusic`, infinite-loop MP3), SFX PCM decode + `playSFX` one-shots, `sfxMuted` package flag + `applyMusicVolume` hook used by the settings menu |
 | `network.go` | Static catalog (`staticCatalog` with `NodeDef.PatchNews`) + edge spec (`staticEdgeSpec`) + `Network`/`buildNetwork`; resolved once at startup, immutable |
 | `nodes.go` | Visible node map: state/defense/security/production, dynamic visibility (`initVisibleNetwork`, `addVisibleNode`, `revealNeighbors` w/ security bias), ring layout (`relayoutTargets`, `easeNodes`), draw (nodes + edges + hidden-edge stubs + `+1` floats), attack scheduling, infection/containment/production accumulators, click routing |
 | `overlay.go` | Game-state overlay (two rows: infection + containment with bars and rate labels; right-edge `EXPLOITS` counter) drawn on top of the map |

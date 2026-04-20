@@ -58,6 +58,11 @@ const audioSampleRate = 48000
 // per process, so we create it lazily on first use and reuse forever.
 var audioCtx *audio.Context
 
+// sfxMuted mirrors Game.muteSFX at package scope so playSFX (which doesn't hold
+// a *Game) can short-circuit without a parameter change. toggleSFXMute is the
+// single writer; in-flight one-shot players aren't affected, only future ones.
+var sfxMuted bool
+
 // Decoded PCM buffers for one-shot SFX, filled once by ensureAudioCtx. NewPlayerFromBytes
 // over a shared buffer is cheap, so a rapid-fire sequence (e.g. "+1" spam from multiple
 // security nodes) creates a new ephemeral player per hit without re-decoding the source.
@@ -112,7 +117,7 @@ func decodeWAV(data []byte) []byte {
 // ephemeral Player so overlapping SFX don't cut each other off; the GC collects them
 // once playback finishes.
 func playSFX(pcm []byte) {
-	if len(pcm) == 0 || audioCtx == nil {
+	if sfxMuted || len(pcm) == 0 || audioCtx == nil {
 		return
 	}
 	p := audioCtx.NewPlayerFromBytes(pcm)
@@ -150,6 +155,7 @@ func (g *Game) playLoopingMP3(data []byte) {
 	}
 	g.musicPlayer = p
 	p.Play()
+	g.applyMusicVolume()
 }
 
 // stopMusic halts and releases the current player. Safe to call when no player is

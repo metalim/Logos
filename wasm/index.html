@@ -39,6 +39,12 @@
 		<div class="status" id="loaderStatus">loading…</div>
 	</div>
 	<script>
+		// Rough uncompressed size of game.wasm; used as a fallback when the server omits
+		// Content-Length (common when on-the-fly gzip is applied and the transfer is
+		// chunked). Pick a value slightly above the real build so the bar doesn't reach
+		// 100% before the stream actually ends; the post-download clamp to 1.0 happens
+		// unconditionally on the "initializing…" step.
+		const WASM_EXPECTED_BYTES = 26 * 1048576;
 		(async () => {
 			const loader = document.getElementById("loader");
 			const fill = document.getElementById("loaderFill");
@@ -50,9 +56,11 @@
 			try {
 				const resp = await fetch("game.wasm");
 				if (!resp.ok) throw new Error("HTTP " + resp.status);
-				// Prefer Content-Length; fall back to indeterminate ticking if the server
-				// strips it (some CDNs do when compression is on and size can't be predicted).
-				const total = parseInt(resp.headers.get("Content-Length") || "0", 10);
+				// Prefer Content-Length; fall back to the baked-in expected size so the bar
+				// still advances monotonically on servers that strip the header (gzip/CDN).
+				const headerTotal = parseInt(resp.headers.get("Content-Length") || "0", 10);
+				const total = headerTotal > 0 ? headerTotal : WASM_EXPECTED_BYTES;
+				const known = headerTotal > 0;
 				const reader = resp.body.getReader();
 				const chunks = [];
 				let received = 0;
@@ -61,11 +69,12 @@
 					if (done) break;
 					chunks.push(value);
 					received += value.length;
-					if (total > 0) {
-						setProgress(received / total, `loading ${(received / 1048576).toFixed(1)} / ${(total / 1048576).toFixed(1)} MB`);
-					} else {
-						setProgress(0.5, `loading ${(received / 1048576).toFixed(1)} MB`);
-					}
+					// When total is an estimate, cap the displayed fraction at 0.99 so the
+					// bar never claims "done" before the stream actually ends.
+					const frac = known ? received / total : Math.min(0.99, received / total);
+					const mb = (received / 1048576).toFixed(1);
+					const totalMB = (total / 1048576).toFixed(1);
+					setProgress(frac, known ? `loading ${mb} / ${totalMB} MB` : `loading ${mb} / ~${totalMB} MB`);
 				}
 				setProgress(1, "initializing…");
 				const blob = new Blob(chunks, { type: "application/wasm" });

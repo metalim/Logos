@@ -143,8 +143,9 @@ Non-Normal states (`Attack`, `Infected`, `Patched`) are skipped, so the timer **
 - Pointer source: `pollJustPressedPointer` returns the first just-pressed touch (priority) or left mouse press; map clicks and feed drags target disjoint rects so they don't interfere.
 - Press inside `mapPanel.GetWidget().Rect` only; otherwise no-op.
 - **State machine** (`g.pendingPatchNode int`, `-1` when no menu):
-  - **Menu open:** if the press hits a menu button, run `applyDefend` / `applyPatch`; clear `pendingPatchNode`. Otherwise (press anywhere else, including the map) close the menu without action.
-  - **Menu closed:** `attackNodeAt(x, y)` returns the first `Attack` node whose hit disc (`nodeRadius + hitSlackPx`) covers the press; if found, `pendingPatchNode = idx` and `playSFX(sfxBlipPCM)` opens the menu under it.
+  - **Menu open, `patchesLeft > 0`:** if the press hits a menu button, run `applyDefend` / `applyPatch`; clear `pendingPatchNode`. Otherwise (press anywhere else, including the map) close the menu without action.
+  - **Menu open, `patchesLeft == 0`:** buttons are inert (dimmed by `drawPatchMenu`); any press — inside the buttons or not — just closes the menu. This lets the player open the menu to inspect the situation even with no stock.
+  - **Menu closed:** `attackNodeAt(x, y)` returns the first `Attack` node whose hit disc (`nodeRadius + hitSlackPx`) covers the press; if found, `pendingPatchNode = idx` and `playSFX(sfxBlipPCM)` opens the menu under it. **The open gate does not check `patchesLeft`** — the menu is always openable.
 - **Actions** (both consume **1 patch** each, guarded by `canSpendPatchOn`):
   - `applyDefend`: state → `Normal`, `AttackedAt = time.Time{}`, `playSFX(sfxPowerPCM)`. `ProductionElapsed` is **not** reset, so a defended security node keeps its patch progress.
   - `applyPatch`: state → `Patched`, `playSFX(sfxBoomPCM)` + `pushNews(pickPatchNews(idx))`. Frozen: never produces patches again.
@@ -154,7 +155,8 @@ Non-Normal states (`Attack`, `Infected`, `Patched`) are skipped, so the timer **
 `patch_menu.go` renders a two-button popup anchored under the targeted node:
 
 - **Buttons:** `Defend` (left) and `"Patch"` (right, with quotes), each `menuButtonW × menuButtonH`, gap `menuGap`, vertical offset `menuOffsetY` below the node center.
-- **Look:** `menuBG` fill + `menuBorder` stroke (`menuStrokeW`); label centered with `overlayValueFace`.
+- **Look (enabled, `patchesLeft > 0`):** `menuBG` fill + `menuBorder` stroke (`menuStrokeW`); labels centered with `overlayValueFace`. `Defend` uses the neutral `menuLabelFG` (near-white). `"Patch"` uses `menuDangerFG` (red, `#ff5a55`) to flag the destructive action — locking the node to `Patched` prevents it from ever producing again.
+- **Look (disabled, `patchesLeft == 0`):** same layout, dimmed palette — `menuBGDisabled`, `menuBorderDisabled`, `menuLabelFGDisabled` for `Defend`, and `menuDangerFGDisabled` (red at low alpha) for `"Patch"`. `drawMenuButton(dst, r, label, face, enabled, danger)` is the single entry point that switches palettes; the screen-off `Restart` button passes `(true, false)`.
 - `patchMenuLayout(nodeX, nodeY)` returns the two button rects, clamped horizontally inside `mapPanel.GetWidget().Rect` so it never spills off-screen.
 - `drawPatchMenu` is called last in `Game.Draw` (after the overlay) so the menu sits above everything.
 
@@ -355,5 +357,5 @@ Battery state is fully part of `Game` (`batteryIcon *widget.Graphic`, `batterySe
 | `assets/cover 9x16.jpg` | Title screen cover, embedded |
 | `assets/neon firewall.mp3` | In-game loop track, embedded |
 | `assets/sfx/{blip,boom,power,pickup}.wav` | SFX one-shots, embedded |
-| `wasm/index.html` | WASM shell copied to `dist/wasm/` |
+| `wasm/index.html` | WASM shell copied to `dist/wasm/`; includes a streaming loader (progress bar + MB readout). Uses `Content-Length` when the server exposes it; otherwise falls back to `WASM_EXPECTED_BYTES = 26 MiB` and caps the displayed fraction at `0.99` until the stream ends so the bar still advances on gzip/CDN setups that strip the header. Status text marks estimated mode with `~` (`loading X.X / ~Y.Y MB`). |
 | `Makefile` | `build`, `wasm`, `serve-wasm`, `clean` |

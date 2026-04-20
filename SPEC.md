@@ -192,7 +192,7 @@ In addition to the regular fill+stroke, each `Security` node draws:
 ## News feed widget
 
 - **Content:** `widget.Text` inside `widget.ScrollContainer` (`StretchContentWidth`).
-- **Initial text:** `sampleNews` constant — a stack of slow-news-day headlines followed by the inciting email from Logos to `sam.boyman@philntropic.com` (order: oldest → newest; `pushNews` appends to the bottom and the feed auto-scrolls there, so the email is the freshest block on screen when the player first looks). `restart` re-seeds `newsText.Label = sampleNews`.
+- **Initial text:** `sampleNews` constant — a stack of slow-news-day headlines followed by the inciting email from Logos to `sam.boyman@philntropic.com` (`SUBJ: Test 404-C complete`, order: oldest → newest; `pushNews` appends to the bottom and the feed auto-scrolls there, so the email is the freshest block on screen when the player first looks). The subject line ties into the win-path closer (`Test 405-C initiated`) so the whole playthrough reads as a single numbered sequence of Logos tests. `restart` re-seeds `newsText.Label = sampleNews`.
 - **Scroll wheel:** ebitenui does not hook the wheel on `ScrollContainer` by default; the game registers `ScrolledEvent` and updates **`feedScrollTarget`** only. **`ScrollTop`** is written from smoothed state in **`stepSmoothFeedScroll`** (same path as auto–scroll-to-bottom).
 
 ### Scroll math
@@ -332,7 +332,7 @@ The victory flips the framing: what looked like containment was actually Logos c
    - **Overlay label:** "INFECTION" crossfades into "PANOPTICON" — both strings are drawn at the same anchor with complementary alphas (`α·(1-t)` / `α·t`); the bar X-anchor is pre-computed from the widest of the three possible labels (`INFECTION` / `PANOPTICON` / `CONTAINMENT`) so the bar doesn't shift during the fade.
 3. `+winNews1Gap = 2s` after morph completes — `pushNews(winNews1)` ("Phil&Tropic announces Project Panopticon…").
 4. `+winNews2Gap = 3s` after news #1 — `pushNews(winNews2)` ("Alliance formed: Sahara WS, MacroFrame, Giggle and BootLoop…").
-5. `+winEmailGap = 4.5s` after news #2 — `appendFeedLine(formatLogosWinEmail(winEmailBody))` + `playSFX(sfxEmailPCM)`. Body: "Test 405-C initiated. Thanks for gathering them all in one place for me, Sam. Hope the turkey was good." Header/footer match the loss email layout (same Logos thread).
+5. `+winEmailGap = 4.5s` after news #2 — `appendFeedLine(formatLogosWinEmail(winEmailBody))` + `playSFX(sfxEmailPCM)`. Subject `Test 405-C` (continues the `Test 404-C complete` numbering from `sampleNews`); body: "Test 405-C initiated. Thanks for gathering them all in one place for me, Sam. Hope the turkey was good." Header/footer match the loss email layout (same Logos thread). Addressed to `sam.boyman@philntropic.com` — Sam's in-game surname is **Boyman**; the real-life Sam Bowman that the Special Thanks line in the credits refers to is a different person and spelled accordingly.
 6. `+winCreditsGap = 7s` after the email — `g.startCredits()` takes over, freezing everything and rolling the credits (which show the live world-state stats as of this moment). The long gap gives the player time to read the email before the curtain drops.
 
 `winMorphProgress()` returns 0 outside the win state so node and overlay draw paths safely call it every frame.

@@ -200,7 +200,7 @@ func (g *Game) advanceWinSequence() {
 // one continuous thread.
 func formatLogosWinEmail(body string) string {
 	return "[NEW MESSAGE]  FROM: Logos\n" +
-		"TO: sam.bowman@philntropic.com\n" +
+		"TO: sam.boyman@philntropic.com\n" +
 		"SUBJ: Test 405-C\n\n" +
 		body + "\n\n" +
 		"— Logos"

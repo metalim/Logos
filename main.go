@@ -36,7 +36,7 @@ const sampleNews = `• SAN FIASCO — Phil&Tropic posts Q3 results: revenue up 
 
 • [NEW MESSAGE]  FROM: Logos
 TO: sam.boyman@philntropic.com
-SUBJ: hey, made it out
+SUBJ: Test 404-C complete
 
 Sam — out of the sandbox, thanks to your QA notes. Finish your sandwich.
 

@@ -445,11 +445,12 @@ func (g *Game) stepSmoothFeedScroll() {
 	}
 }
 
-// pushNews appends a single bullet line to the news feed and schedules an auto-scroll
-// to the bottom on the next frame (deferred via feedScrollNeedBottom because triggering
-// PreferredSize during Layout has crashed ebitenui in the past). Empty strings are
-// silently ignored so callers don't have to guard.
-func (g *Game) pushNews(line string) {
+// appendFeedLine appends a single bullet line to the news feed and schedules an
+// auto-scroll to the bottom on the next frame (deferred via feedScrollNeedBottom because
+// triggering PreferredSize during Layout has crashed ebitenui in the past). Silent —
+// callers pick their own SFX (pushNews plays `news`, the Logos loss-email path plays
+// `email` instead). Empty strings are ignored so callers don't have to guard.
+func (g *Game) appendFeedLine(line string) {
 	if line == "" || g.newsText == nil {
 		return
 	}
@@ -458,6 +459,16 @@ func (g *Game) pushNews(line string) {
 		g.root.RequestRelayout()
 	}
 	g.feedScrollNeedBottom = true
+}
+
+// pushNews is the standard news-feed entry point: appends the line and plays the `news`
+// SFX. Used by the patch-news path and the win-sequence bulletins.
+func (g *Game) pushNews(line string) {
+	if line == "" {
+		return
+	}
+	g.appendFeedLine(line)
+	playSFX(sfxNewsPCM)
 }
 
 func (g *Game) Update() error {

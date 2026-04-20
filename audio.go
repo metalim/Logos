@@ -37,6 +37,12 @@ var sfxDrainBytes []byte
 //go:embed assets/sfx/email.wav
 var sfxEmailBytes []byte
 
+//go:embed assets/sfx/news.wav
+var sfxNewsBytes []byte
+
+//go:embed assets/sfx/infected.wav
+var sfxInfectedBytes []byte
+
 // audioSampleRate is the single rate the whole game mixes at. 48 kHz matches the
 // source MP3 and is the preferred WebAudio rate, so the browser mixer doesn't have
 // to resample.
@@ -50,12 +56,14 @@ var audioCtx *audio.Context
 // over a shared buffer is cheap, so a rapid-fire sequence (e.g. "+1" spam from multiple
 // security nodes) creates a new ephemeral player per hit without re-decoding the source.
 var (
-	sfxBlipPCM   []byte
-	sfxBoomPCM   []byte
-	sfxPowerPCM  []byte
-	sfxPickupPCM []byte
-	sfxDrainPCM  []byte
-	sfxEmailPCM  []byte
+	sfxBlipPCM     []byte
+	sfxBoomPCM     []byte
+	sfxPowerPCM    []byte
+	sfxPickupPCM   []byte
+	sfxDrainPCM    []byte
+	sfxEmailPCM    []byte
+	sfxNewsPCM     []byte
+	sfxInfectedPCM []byte
 )
 
 func ensureAudioCtx() *audio.Context {
@@ -69,6 +77,8 @@ func ensureAudioCtx() *audio.Context {
 	sfxPickupPCM = decodeWAV(sfxPickupBytes)
 	sfxDrainPCM = decodeWAV(sfxDrainBytes)
 	sfxEmailPCM = decodeWAV(sfxEmailBytes)
+	sfxNewsPCM = decodeWAV(sfxNewsBytes)
+	sfxInfectedPCM = decodeWAV(sfxInfectedBytes)
 	return audioCtx
 }
 

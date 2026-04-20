@@ -727,6 +727,7 @@ func (g *Game) progressAttacks() {
 			g.nodes[i].State = NodeStateInfected
 			g.infectionPct = clampInfection(g.infectionPct + infectionOneShotPct)
 			g.revealNeighbors(i)
+			playSFX(sfxInfectedPCM)
 		}
 	}
 }

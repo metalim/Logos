@@ -161,7 +161,7 @@ func (g *Game) advanceLossSequence() {
 	elapsed := time.Since(e.at)
 
 	if !e.emailPushed && elapsed >= lossEmailDelay {
-		g.pushNews(formatLogosLossEmail(e.line))
+		g.appendFeedLine(formatLogosLossEmail(e.line))
 		playSFX(sfxEmailPCM)
 		e.emailPushed = true
 	}

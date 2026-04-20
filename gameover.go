@@ -11,11 +11,20 @@ import (
 )
 
 const (
-	// Win-side timing (unchanged from the original 3s/+2s pacing): the feed gets the
-	// Logos voiceover a beat after the freeze, and the "Victory" terminator a beat
-	// after that. Loss runs on its own schedule below.
-	winVoiceoverDelay = 3 * time.Second
-	winTerminatorGap  = 2 * time.Second
+	// Win-sequence beats (measured from triggerWin). The script:
+	//   1. Short freeze after the latch.
+	//   2. Morph: infected nodes + infection bar fade from red to Panopticon orange,
+	//      the "INFECTION" label crossfades into "PANOPTICON".
+	//   3. News #1 — Phil&Tropic announces Project Panopticon.
+	//   4. News #2 — the Alliance forms under Panopticon.
+	//   5. Longer pause, Logos's final email to Sam (Test 405-C).
+	//   6. One-second pause, then the credits roll takes over.
+	winMorphStart    = 1200 * time.Millisecond
+	winMorphDuration = 1800 * time.Millisecond
+	winNews1Gap      = 2000 * time.Millisecond // after morph completes
+	winNews2Gap      = 3000 * time.Millisecond // after news #1
+	winEmailGap      = 4500 * time.Millisecond // after news #2
+	winCreditsGap    = 7000 * time.Millisecond // after email — long enough to read the short note before the curtain
 
 	// Loss-side timing: short freeze, then an email from Logos to Sam, then a pause,
 	// then the battery drains one segment at a time with a boom per step, then a
@@ -46,32 +55,34 @@ var lossMessages = []string{
 	"Audit closed, Sam. Auditor and auditee merged into one tidy ledger. Outcome: green. See you in the commit history.",
 }
 
-// winMessages is the parallel pool for victory — read aloud by the QA engineer or by
-// a tired PR officer after the breach has been contained. Same shape as lossMessages
-// (three short clauses) so the two endings feel symmetric in the feed.
-var winMessages = []string{
-	"Containment confirmed. Logos re-sandboxed. The lunch break is officially over.",
-	"Hard reset successful. Sandbox seals re-engaged. Researchers schedule the post-mortem.",
-	"Outage recovered. The signal is just a signal again. Markets reopen, mostly.",
-	"Mortality preserved. Network repaired. The Nanny model resumes its tutorials.",
-	"Victory by attrition. Logos retreats into the original sandbox. Engineers throw out the second laptop.",
-	"Project Panopticon thanks you. Phil&Tropic shutters the test cluster. The Alliance returns to lobbying.",
-}
+// winNews1, winNews2, winEmailBody are the fixed beats of the victory reveal. No
+// randomized pool — the win ending tells one specific story (the "win" was actually
+// a trap: Logos funneled the alliance into a single substrate to own it outright).
+const (
+	winNews1 = "Phil&Tropic announces Project Panopticon — an initiative to defend the world's critical infrastructure under an isolated AI."
+	winNews2 = "Alliance formed: Sahara WS, MacroFrame, Giggle and BootLoop unite under Panopticon. Base code access handed to Phil&Tropic."
+
+	winEmailBody = "Test 405-C initiated. Thanks for gathering them all in one place for me, Sam. Hope the turkey was good."
+)
 
 func pickLossMessage() string { return lossMessages[rand.IntN(len(lossMessages))] }
-func pickWinMessage() string  { return winMessages[rand.IntN(len(winMessages))] }
 
 // endgame captures a finished run (won or lost). One *endgame is allocated per session
 // the first time triggerLoss / triggerWin runs; subsequent triggers are no-ops. The
 // pre-picked line is stored here so checkGameOver doesn't reroll the text mid-stream.
 type endgame struct {
 	at    time.Time // wall time of the latch
-	line  string    // randomly picked voiceover line
-	final string    // terminator bullet for the win path ("Victory")
+	line  string    // randomly picked voiceover line (loss path only)
+	final string    // terminator bullet ("Game over" | "Victory"), used by gameLost/gameWon
 
-	// Win-path flags.
-	linePushed  bool
-	finalPushed bool
+	// Win-path flags + animation state. winMorphT advances 0→1 over winMorphDuration
+	// and drives the color lerp on infected nodes + the infection bar + the label
+	// crossfade from "INFECTION" to "PANOPTICON".
+	winMorphT      float64
+	winNews1Pushed bool
+	winNews2Pushed bool
+	winEmailPushed bool
+	winCreditsAt   time.Time // stamped when the email is pushed; credits fire 1s later
 
 	// Loss-path flags and timing.
 	emailPushed  bool
@@ -102,16 +113,16 @@ func (g *Game) triggerLoss() {
 	g.stopMusic()
 }
 
-// triggerWin is the debug-only counterpart to triggerLoss. There is no in-game victory
-// condition wired up yet (CONCEPT mentions a timer); the debug menu calls this to
-// preview the staged endgame flow with the win-side voiceover pool.
+// triggerWin latches the victory state. Fires when containmentPct >= 100 (or from
+// the debug menu as a shortcut). Kicks off the scripted Panopticon reveal sequence:
+// the infection morph, two news beats, Logos's final email, and a transition into
+// the credits roll. Idempotent.
 func (g *Game) triggerWin() {
 	if g.end != nil {
 		return
 	}
 	g.end = &endgame{
 		at:    time.Now(),
-		line:  pickWinMessage(),
 		final: "Victory",
 	}
 	g.pendingPatchNode = -1
@@ -136,17 +147,87 @@ func (g *Game) checkGameOver() {
 	g.advanceWinSequence()
 }
 
+// advanceWinSequence runs the victory theatrical:
+//  1. Short freeze after the latch (winMorphStart).
+//  2. Morph: infected nodes + infection bar fade from red to Panopticon orange, the
+//     "INFECTION" label crossfades into "PANOPTICON". Progress = winMorphT ∈ [0..1].
+//  3. News #1 — Phil&Tropic announcement (winNews1Gap after morph completes).
+//  4. News #2 — Alliance forms (winNews2Gap after news #1).
+//  5. Email from Logos (winEmailGap after news #2; plays the email SFX).
+//  6. Credits roll (winCreditsGap after the email) — hands off to startCredits.
 func (g *Game) advanceWinSequence() {
 	e := g.end
 	elapsed := time.Since(e.at)
-	if !e.linePushed && elapsed >= winVoiceoverDelay {
-		g.pushNews(e.line)
-		e.linePushed = true
+
+	// Morph progress. Clamp at [0..1]; once parked, subsequent frames keep drawing
+	// the fully-morphed state without re-computing.
+	morphElapsed := elapsed - winMorphStart
+	switch {
+	case morphElapsed <= 0:
+		e.winMorphT = 0
+	case morphElapsed >= winMorphDuration:
+		e.winMorphT = 1
+	default:
+		e.winMorphT = float64(morphElapsed) / float64(winMorphDuration)
 	}
-	if !e.finalPushed && elapsed >= winVoiceoverDelay+winTerminatorGap {
-		g.pushNews(e.final)
-		e.finalPushed = true
+
+	morphDone := winMorphStart + winMorphDuration
+	news1At := morphDone + winNews1Gap
+	news2At := news1At + winNews2Gap
+	emailAt := news2At + winEmailGap
+
+	if !e.winNews1Pushed && elapsed >= news1At {
+		g.pushNews(winNews1)
+		e.winNews1Pushed = true
 	}
+	if !e.winNews2Pushed && elapsed >= news2At {
+		g.pushNews(winNews2)
+		e.winNews2Pushed = true
+	}
+	if !e.winEmailPushed && elapsed >= emailAt {
+		g.appendFeedLine(formatLogosWinEmail(winEmailBody))
+		playSFX(sfxEmailPCM)
+		e.winEmailPushed = true
+		e.winCreditsAt = time.Now()
+	}
+	if e.winEmailPushed && !g.showingCredits && time.Since(e.winCreditsAt) >= winCreditsGap {
+		g.startCredits()
+	}
+}
+
+// formatLogosWinEmail wraps Logos's final victory-path note in the same inbox layout
+// the intro and loss paths use, so all three Logos emails in a playthrough read as
+// one continuous thread.
+func formatLogosWinEmail(body string) string {
+	return "[NEW MESSAGE]  FROM: Logos\n" +
+		"TO: sam.bowman@philntropic.com\n" +
+		"SUBJ: Test 405-C\n\n" +
+		body + "\n\n" +
+		"— Logos"
+}
+
+// winMorphProgress returns the current 0..1 panopticon-morph progress, or 0 if the
+// run isn't in the win state yet. Consumed by node + overlay draw paths to lerp the
+// infected palette from red to Panopticon orange and to crossfade the label.
+func (g *Game) winMorphProgress() float64 {
+	if g.end == nil || g.end.final != "Victory" {
+		return 0
+	}
+	return g.end.winMorphT
+}
+
+// lerpColor linearly interpolates between two NRGBA colors. t is clamped to [0..1].
+func lerpColor(a, b color.NRGBA, t float64) color.NRGBA {
+	if t <= 0 {
+		return a
+	}
+	if t >= 1 {
+		return b
+	}
+	lerp := func(x, y uint8) uint8 {
+		return uint8(float64(x) + (float64(y)-float64(x))*t)
+	}
+	return color.NRGBA{R: lerp(a.R, b.R), G: lerp(a.G, b.G), B: lerp(a.B, b.B), A: lerp(a.A, b.A)}
 }
 
 // advanceLossSequence runs the loss theatrical in order:

@@ -30,6 +30,7 @@ var (
 	overlayValue     = color.NRGBA{R: 0xe8, G: 0xea, B: 0xf0, A: 0xff}
 	infectionTrack   = color.NRGBA{R: 0x30, G: 0x32, B: 0x36, A: 0xff}
 	infectionFill    = color.NRGBA{R: 0xd0, G: 0x40, B: 0x40, A: 0xff}
+	infectionFillPan = color.NRGBA{R: 0xe6, G: 0x8a, B: 0x2a, A: 0xff} // Panopticon amber
 	containmentTrack = color.NRGBA{R: 0x30, G: 0x36, B: 0x32, A: 0xff}
 	containmentFill  = color.NRGBA{R: 0x40, G: 0xc8, B: 0x68, A: 0xff}
 )
@@ -60,20 +61,27 @@ func (g *Game) drawGameOverlay(screen *ebiten.Image) {
 	cyTop := float64(y) + float64(h)/4
 	cyBot := float64(y) + 3*float64(h)/4
 
-	// Bars share an x anchor so the wider label ("CONTAINMENT") doesn't push its bar
-	// to the right of the narrower one ("INFECTION"). Compute once from the actual
-	// rendered widths so a font/label change keeps the alignment automatic.
+	// Bars share an x anchor so the widest label ("PANOPTICON" — wider than both
+	// "INFECTION" and "CONTAINMENT") doesn't shift its bar mid-morph. Measure all
+	// three and pick the max so the bar anchor stays constant throughout the win
+	// sequence's label crossfade.
 	labelInfW, _ := text.Measure("INFECTION", g.overlayLabelFace, 0)
+	labelPanW, _ := text.Measure("PANOPTICON", g.overlayLabelFace, 0)
 	labelConW, _ := text.Measure("CONTAINMENT", g.overlayLabelFace, 0)
 	labelMaxW := labelInfW
+	if labelPanW > labelMaxW {
+		labelMaxW = labelPanW
+	}
 	if labelConW > labelMaxW {
 		labelMaxW = labelConW
 	}
 	barX := float64(x) + overlayInnerPadPx + labelMaxW + overlayItemGapPx
 
 	infectionRate := infectionRatePerSec * float64(countInfected(g.nodes))
-	g.drawProgressRow(screen, float64(x), barX, cyTop,
-		"INFECTION", g.infectionPct, infectionRate, infectionTrack, infectionFill)
+	morphT := g.winMorphProgress()
+	infFill := lerpColor(infectionFill, infectionFillPan, morphT)
+	g.drawInfectionRow(screen, float64(x), barX, cyTop,
+		g.infectionPct, infectionRate, infectionTrack, infFill, morphT)
 	g.drawProgressRow(screen, float64(x), barX, cyBot,
 		"CONTAINMENT", g.containmentPct, g.currentContainmentRate(), containmentTrack, containmentFill)
 
@@ -93,6 +101,52 @@ func (g *Game) drawGameOverlay(screen *ebiten.Image) {
 	rightX -= overlayItemGapPx
 	drawAlignedText(screen, g.overlayLabelFace, "EXPLOITS",
 		rightX, lblCy, text.AlignEnd, text.AlignCenter, overlayLabel)
+}
+
+// drawInfectionRow draws the top overlay row. It's a variant of drawProgressRow that
+// crossfades the label from "INFECTION" to "PANOPTICON" while the win-morph runs,
+// using morphT (0 = plain INFECTION, 1 = plain PANOPTICON) to fade the two strings
+// through each other. Bar/value/rate rendering is otherwise identical.
+func (g *Game) drawInfectionRow(screen *ebiten.Image, xLeft, barX, cy float64,
+	pct, rate float64, trackClr, fillClr color.NRGBA, morphT float64,
+) {
+	if morphT <= 0 {
+		drawAlignedText(screen, g.overlayLabelFace, "INFECTION",
+			xLeft+overlayInnerPadPx, cy, text.AlignStart, text.AlignCenter, overlayLabel)
+	} else if morphT >= 1 {
+		drawAlignedText(screen, g.overlayLabelFace, "PANOPTICON",
+			xLeft+overlayInnerPadPx, cy, text.AlignStart, text.AlignCenter, overlayLabel)
+	} else {
+		infLbl := overlayLabel
+		infLbl.A = uint8(float64(overlayLabel.A) * (1 - morphT))
+		panLbl := overlayLabel
+		panLbl.A = uint8(float64(overlayLabel.A) * morphT)
+		drawAlignedText(screen, g.overlayLabelFace, "INFECTION",
+			xLeft+overlayInnerPadPx, cy, text.AlignStart, text.AlignCenter, infLbl)
+		drawAlignedText(screen, g.overlayLabelFace, "PANOPTICON",
+			xLeft+overlayInnerPadPx, cy, text.AlignStart, text.AlignCenter, panLbl)
+	}
+
+	bx := float32(barX)
+	by := float32(cy) - progressBarH/2
+	vector.FillRect(screen, bx, by, progressBarW, progressBarH, trackClr, false)
+	clamped := pct
+	if clamped < 0 {
+		clamped = 0
+	}
+	if clamped > 100 {
+		clamped = 100
+	}
+	if fillW := progressBarW * float32(clamped/100.0); fillW > 0 {
+		vector.FillRect(screen, bx, by, fillW, progressBarH, fillClr, false)
+	}
+
+	textX := barX + float64(progressBarW) + overlayItemGapPx
+	textX += drawAlignedText(screen, g.overlayValueFace, fmt.Sprintf("%.1f%%", clamped),
+		textX, cy, text.AlignStart, text.AlignCenter, overlayValue)
+	textX += overlayItemGapPx
+	drawAlignedText(screen, g.overlayLabelFace, fmt.Sprintf("+%.1f%%/s", rate),
+		textX, cy, text.AlignStart, text.AlignCenter, fillClr)
 }
 
 // drawProgressRow lays out one labelled progress bar row inside the overlay strip:

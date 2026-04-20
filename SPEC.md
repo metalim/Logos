@@ -317,17 +317,25 @@ Placeholder silent WAVs live in `assets/sfx/` so the build never breaks; replace
 `Game.end *endgame` is the session latch. `nil` during play; non-nil after the first `triggerLoss` / `triggerWin`. Once set, the latch is never cleared inside the current run — `resetGameState` nils it. Both triggers stop music and close any open patch menu (`pendingPatchNode = -1`).
 
 - **Loss:** `checkGameOver` latches when `infectionPct >= 100`. Picks one line from `lossMessages` up front so the text is stable across frames.
-- **Win:** latches when `containmentPct >= 100`. Picks from `winMessages` the same way. Debug menu's `Win` button is a shortcut to the same path.
+- **Win:** latches when `containmentPct >= 100`. Plays a fixed Panopticon-reveal script (no message pool — the victory tells one specific story). Debug menu's `Win` button is a shortcut to the same path.
 
 `gameEnded()` / `gameLost()` / `gameWon()` are read by every sim system as a freeze gate; only `easeNodes`, the news scroll, the wall clock, and the debug menu keep running after a latch.
 
 ### Win sequence (`advanceWinSequence`)
 
-1. `+0s` — latch, stop music.
-2. `+winVoiceoverDelay = 3s` — push the picked `winMessages` line as a bullet into the feed.
-3. `+winVoiceoverDelay + winTerminatorGap = 5s` — push the `"Victory"` terminator as its own bullet.
+The victory flips the framing: what looked like containment was actually Logos consolidating the alliance into one substrate. Timings from latch (t=0):
 
-No on-screen curtain; the feed carries the whole closure.
+1. `+0s` — latch, stop music, freeze the sim.
+2. `+winMorphStart = 1.2s` → morph begins; over `winMorphDuration = 1.8s`, `endgame.winMorphT` advances 0→1. Consumed by:
+   - **Node draw:** infected fill/stroke lerp from `nodeFillInfected` / `nodeStrokeInfect` to `nodeFillPanopticon` / `nodeStrokePanopticon` (amber/orange).
+   - **Overlay bar:** infection fill lerps from `infectionFill` (red) to `infectionFillPan` (amber).
+   - **Overlay label:** "INFECTION" crossfades into "PANOPTICON" — both strings are drawn at the same anchor with complementary alphas (`α·(1-t)` / `α·t`); the bar X-anchor is pre-computed from the widest of the three possible labels (`INFECTION` / `PANOPTICON` / `CONTAINMENT`) so the bar doesn't shift during the fade.
+3. `+winNews1Gap = 2s` after morph completes — `pushNews(winNews1)` ("Phil&Tropic announces Project Panopticon…").
+4. `+winNews2Gap = 3s` after news #1 — `pushNews(winNews2)` ("Alliance formed: Sahara WS, MacroFrame, Giggle and BootLoop…").
+5. `+winEmailGap = 4.5s` after news #2 — `appendFeedLine(formatLogosWinEmail(winEmailBody))` + `playSFX(sfxEmailPCM)`. Body: "Test 405-C initiated. Thanks for gathering them all in one place for me, Sam. Hope the turkey was good." Header/footer match the loss email layout (same Logos thread).
+6. `+winCreditsGap = 7s` after the email — `g.startCredits()` takes over, freezing everything and rolling the credits (which show the live world-state stats as of this moment). The long gap gives the player time to read the email before the curtain drops.
+
+`winMorphProgress()` returns 0 outside the win state so node and overlay draw paths safely call it every frame.
 
 ### Loss sequence (`advanceLossSequence`)
 

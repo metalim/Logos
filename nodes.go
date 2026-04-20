@@ -149,6 +149,11 @@ var (
 	nodeStrokeAttack   = color.NRGBA{R: 0xff, G: 0xe8, B: 0x70, A: 0xff}
 	nodeFillInfected   = color.NRGBA{R: 0xc0, G: 0x30, B: 0x30, A: 0xff}
 	nodeStrokeInfect   = color.NRGBA{R: 0xff, G: 0x60, B: 0x60, A: 0xff}
+	// Panopticon palette: infected-red morphs into amber/orange on victory to signal
+	// that Project Panopticon has absorbed the network. Drawn via lerpColor with the
+	// current win-morph progress, so nothing changes outside the win sequence.
+	nodeFillPanopticon   = color.NRGBA{R: 0xc8, G: 0x80, B: 0x1a, A: 0xff}
+	nodeStrokePanopticon = color.NRGBA{R: 0xff, G: 0xb8, B: 0x48, A: 0xff}
 	nodeFillPatched    = color.NRGBA{R: 0x10, G: 0x10, B: 0x12, A: 0xff}
 	nodeStrokePatch    = color.NRGBA{R: 0x55, G: 0x55, B: 0x5a, A: 0xff}
 	edgeColor          = color.NRGBA{R: 0x40, G: 0x42, B: 0x48, A: 0xff}
@@ -413,6 +418,7 @@ func (g *Game) drawNodeMap(screen *ebiten.Image) {
 	g.drawHiddenEdgeStubs(screen, pos, centerX, centerY)
 
 	frozen := g.gameEnded()
+	morphT := g.winMorphProgress()
 	for _, n := range g.nodes {
 		x, y := pos(n)
 		fill, stroke := nodeColors(n.State)
@@ -420,6 +426,12 @@ func (g *Game) drawNodeMap(screen *ebiten.Image) {
 		// player sees the world halt mid-tick rather than continuing to wink at them.
 		if n.State == NodeStateAttack && !frozen {
 			fill = scaleAlpha(fill, attackBlinkAlpha(time.Since(g.epoch)))
+		}
+		// Panopticon morph (victory only): infected nodes ease from red to amber as
+		// the final reveal plays out; other states are unaffected.
+		if n.State == NodeStateInfected && morphT > 0 {
+			fill = lerpColor(fill, nodeFillPanopticon, morphT)
+			stroke = lerpColor(stroke, nodeStrokePanopticon, morphT)
 		}
 		vector.FillCircle(screen, x, y, nodeRadius, fill, true)
 		vector.StrokeCircle(screen, x, y, nodeRadius, nodeStrokeW, stroke, true)

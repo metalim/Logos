@@ -7,7 +7,7 @@ Narrative design, lore, and target gameplay loop live in [CONCEPT.md](CONCEPT.md
 - **Go**, [Ebiten v2](https://ebitengine.org/), [ebitenui](https://github.com/ebitenui/ebitenui)
 - **Font:** `golang.org/x/image/font/gofont/gomono` via `ebiten/v2/text/v2`
 - **Desktop build:** `CGO_ENABLED=0` (see [Makefile](Makefile))
-- **WASM:** `make wasm` → `dist/wasm/` (`game.wasm`, `wasm_exec.js`, `index.html`)
+- **WASM:** `make wasm` → `dist/wasm/` (`game.wasm`, `wasm_exec.js`, `index.html`, plus `logos.zip` bundling all three for itch.io upload)
 
 ## Window
 
@@ -322,9 +322,9 @@ A phone-shutdown theatrical. Timings from latch (t=0):
 
 1. `+0s` — latch, stop music, freeze the sim.
 2. `+lossEmailDelay = 2s` — push an email from Logos to `sam.boyman@philntropic.com` into the feed via `pushNews(formatLogosLossEmail(line))`. Body is the picked `lossMessages` line; header reads `[NEW MESSAGE]  FROM: Logos / TO: sam.boyman@philntropic.com / SUBJ: all done` and the block is signed `— Logos`, matching the opening email in `sampleNews`.
-3. `+lossEmailDelay + lossBatteryDelay = 6s` — drain starts (`drainStarted = true`, `drainStartAt = time.Now()`).
-4. `drainStartAt + batterySegmentInterval * k` for k = 1..`batterySegments` (1.2s per step by default) — `batterySegs` decrements, `refreshBatteryIcon` rebuilds the glyph (`g.batteryIcon.Image = makeBatteryIcon(n)`) and `playSFX(sfxBoomPCM)` fires per step. The loop tolerates frame stalls by computing the target segment count from elapsed time each frame and catching up.
-5. Last boom + `lossScreenOffDelay = 0.8s` — `e.screenOff = true`. Draw short-circuits to `drawScreenOff`, painting a solid-black curtain over the whole layout and a centered Restart button (`screenOffBtnW × screenOffBtnH = 400×120`). `handleScreenOff` (called in `Update` between `checkGameOver` and the rest of the sim) routes any just-pressed pointer inside the button rect back through `g.restart()`.
+3. `+lossEmailDelay + lossBatteryDelay = 6s` — drain starts (`drainStarted = true`, `drainStartAt = time.Now()`). The email gets the reading pause before the phone begins its shutdown.
+4. `drainStartAt + batterySegmentInterval * k` for k = 1..`batterySegments` (`batterySegmentInterval = 1.2s`) — `batterySegs` decrements, `refreshBatteryIcon` rebuilds the glyph (`g.batteryIcon.Image = makeBatteryIcon(n)`) and `playSFX(sfxBoomPCM)` fires per step. The loop tolerates frame stalls by computing the target segment count from elapsed time each frame and catching up.
+5. Last boom + `lossScreenOffDelay = 0.8s` — `e.screenOff = true`. Draw short-circuits to `drawScreenOff`, painting a solid-black curtain over the whole layout, blitting the **empty battery glyph** at its original titlebar slot (right-aligned with `titleBarPadX` inset, vertically centered in the top band) for visual continuity — the phone is off but the drained battery is the last thing you see — and a centered Restart button (`screenOffBtnW × screenOffBtnH = 400×120`). `handleScreenOff` (called in `Update` between `checkGameOver` and the rest of the sim) routes any just-pressed pointer inside the button rect back through `g.restart()`.
 
 Battery state is fully part of `Game` (`batteryIcon *widget.Graphic`, `batterySegs int`) and reset to `batterySegments = 4` + a glyph rebuild in `resetGameState`, so a restart brings the status bar back to full.
 

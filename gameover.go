@@ -235,13 +235,28 @@ func (g *Game) handleScreenOff() bool {
 	return true
 }
 
-// drawScreenOff paints the black curtain and the Restart button. Called from Draw in
+// drawScreenOff paints the black curtain with the drained battery still pinned in the
+// status-strip slot (visual continuity: the phone is off but the last battery state
+// is what got us here) and the Restart button centered below. Called from Draw in
 // place of the normal UI stack once e.screenOff flips true.
 func (g *Game) drawScreenOff(screen *ebiten.Image) {
 	vector.FillRect(screen, 0, 0, float32(layoutWidth), float32(layoutHeight),
 		color.NRGBA{A: 0xff}, false)
-	r := screenOffRestartRect()
+
+	// Battery in its original titlebar slot: right-aligned with titleBarPadX inset,
+	// vertically centered in the top band (same math as the RowLayout that hosted it).
+	if g.batteryIcon != nil && g.batteryIcon.Image != nil {
+		topBandH := layoutHeight * bandTopPercent / 100
+		w := batteryBodyW + batteryTipW
+		op := &ebiten.DrawImageOptions{}
+		op.GeoM.Translate(
+			float64(layoutWidth-titleBarPadX-w),
+			float64((topBandH-batteryBodyH)/2),
+		)
+		screen.DrawImage(g.batteryIcon.Image, op)
+	}
+
 	if g.overlayValueFace != nil {
-		drawMenuButton(screen, r, "Restart", g.overlayValueFace)
+		drawMenuButton(screen, screenOffRestartRect(), "Restart", g.overlayValueFace)
 	}
 }

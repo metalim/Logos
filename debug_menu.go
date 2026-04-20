@@ -16,6 +16,12 @@ import (
 // Used to preview the staged endgame flow, jump into the credits roll, and start
 // over without quitting the binary.
 const (
+	// debugMenuEnabled gates the whole debug cluster — both rendering and click
+	// routing. Flip to true for local testing / release-candidate playthroughs
+	// where shortcuts into the win / loss / credits states are useful. Shipped
+	// builds stay with it off so players can't stumble into a broken run.
+	debugMenuEnabled = false
+
 	debugBtnW    = 90
 	debugBtnH    = 44
 	debugBtnPadX = 12 // distance from layout right edge
@@ -57,6 +63,9 @@ func (g *Game) debugButtonRects() (credits, win, restart, lose image.Rectangle, 
 // re-evaluated against an empty endgame map. Restart is always live (it has to be —
 // it's the only way out of the lose state).
 func (g *Game) handleDebugMenu() {
+	if !debugMenuEnabled {
+		return
+	}
 	x, y, pressed := pollJustPressedPointer()
 	if !pressed {
 		return
@@ -83,6 +92,9 @@ func (g *Game) handleDebugMenu() {
 // dim to neutral grey to indicate clicks are no-ops; Restart keeps its color since
 // it stays clickable (it's the way back into a live run).
 func (g *Game) drawDebugMenu(screen *ebiten.Image) {
+	if !debugMenuEnabled {
+		return
+	}
 	creditsR, winR, restartR, loseR, ok := g.debugButtonRects()
 	if !ok || g.overlayLabelFace == nil {
 		return

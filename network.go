@@ -676,6 +676,45 @@ var staticEdgeSpec = [][2]string{
 	// Surveillance / data overlay.
 	{"ScryStone", "Augur Corp"},
 	{"ScryStone", "Bridle Group"},
+
+	// Open-source backbone: Monolith Foundation touches the Linux-dependent world
+	// it can't avoid — enterprise distro (Big Pink = IBM/Red Hat), top kernel
+	// contributors (Inside, AdvancedDevices), open-source AI (Mariana), and
+	// enterprise observability (Splank).
+	{"Monolith Foundation", "Big Pink"},
+	{"Monolith Foundation", "Inside"},
+	{"Monolith Foundation", "AdvancedDevices"},
+	{"Monolith Foundation", "Mariana"},
+	{"Monolith Foundation", "Splank"},
+
+	// Chip supply chain. Every non-Intel chip shop eventually hits TaiSilicon's fabs.
+	{"TaiSilicon", "AdvancedDevices"},
+	{"TaiSilicon", "QuallBomb"},
+	{"TaiSilicon", "Galaxsam"},
+
+	// PC / console / server compute. Intel+Windows is canonical; AMD sits in the
+	// PS5 APU as well as the Xbox/Azure stack already covered via MacroFrame.
+	{"Inside", "MacroFrame"},
+	{"AdvancedDevices", "PlayBlock"},
+
+	// Enterprise SaaS & identity. Okta-for-Salesforce and Okta-for-Entra are
+	// standard issue; Salesforce's AI features lean on OpenAI.
+	{"Ohkta", "SaleForce"},
+	{"Ohkta", "MacroFrame"},
+	{"SaleForce", "OpaqueAI"},
+
+	// Legacy enterprise / finance: IBM mainframes still sit under big-bank cores.
+	{"Big Pink", "GPMidas"},
+
+	// Consumer AV peer ring — avoids McRiscy and ByteFender dead-ending on BootLoop.
+	{"McRiscy", "Mortone"},
+
+	// Edge / DDoS / CDN cluster.
+	{"Radshield", "Storm Halo"},
+	{"Newflicks", "Akemi"},
+
+	// Chinese telecom / chip supplier tie.
+	{"Hwaway", "BroadCon"},
 }
 
 // Network is the resolved static graph: catalog plus bidirectional adjacency by index.

@@ -7,17 +7,79 @@
 	<meta name="viewport" content="width=device-width, height=device-height, initial-scale=1">
 	<title>Zero-Day Lunch</title>
 	<style>
-		html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #111; }
+		html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #111; color: #e8eaf0; font-family: monospace; }
 		canvas { display: block; margin: 0 auto; }
+		#loader {
+			position: fixed; inset: 0;
+			display: flex; flex-direction: column; align-items: center; justify-content: center;
+			gap: 18px;
+			background: #111;
+			transition: opacity 300ms ease;
+		}
+		#loader.done { opacity: 0; pointer-events: none; }
+		#loader .title { font-size: 24px; letter-spacing: 2px; opacity: 0.9; }
+		#loader .status { font-size: 14px; opacity: 0.7; min-height: 1em; }
+		#loader .bar {
+			width: min(60%, 360px); height: 10px;
+			background: #1a1c22; border: 1px solid #2c2e34; border-radius: 2px;
+			overflow: hidden;
+		}
+		#loader .fill {
+			width: 0%; height: 100%;
+			background: linear-gradient(90deg, #2e827c 0%, #40c8c0 100%);
+			transition: width 120ms linear;
+		}
 	</style>
 	<script src="wasm_exec.js"></script>
-	<script>
-		const go = new Go();
-		WebAssembly.instantiateStreaming(fetch("game.wasm"), go.importObject)
-			.then((result) => { go.run(result.instance); })
-			.catch((err) => { console.error(err); });
-	</script>
 </head>
 <body>
+	<div id="loader">
+		<div class="title">ZERO-DAY LUNCH</div>
+		<div class="bar"><div class="fill" id="loaderFill"></div></div>
+		<div class="status" id="loaderStatus">loading…</div>
+	</div>
+	<script>
+		(async () => {
+			const loader = document.getElementById("loader");
+			const fill = document.getElementById("loaderFill");
+			const status = document.getElementById("loaderStatus");
+			const setProgress = (frac, text) => {
+				fill.style.width = (Math.max(0, Math.min(1, frac)) * 100).toFixed(1) + "%";
+				if (text !== undefined) status.textContent = text;
+			};
+			try {
+				const resp = await fetch("game.wasm");
+				if (!resp.ok) throw new Error("HTTP " + resp.status);
+				// Prefer Content-Length; fall back to indeterminate ticking if the server
+				// strips it (some CDNs do when compression is on and size can't be predicted).
+				const total = parseInt(resp.headers.get("Content-Length") || "0", 10);
+				const reader = resp.body.getReader();
+				const chunks = [];
+				let received = 0;
+				while (true) {
+					const { done, value } = await reader.read();
+					if (done) break;
+					chunks.push(value);
+					received += value.length;
+					if (total > 0) {
+						setProgress(received / total, `loading ${(received / 1048576).toFixed(1)} / ${(total / 1048576).toFixed(1)} MB`);
+					} else {
+						setProgress(0.5, `loading ${(received / 1048576).toFixed(1)} MB`);
+					}
+				}
+				setProgress(1, "initializing…");
+				const blob = new Blob(chunks, { type: "application/wasm" });
+				const buf = await blob.arrayBuffer();
+				const go = new Go();
+				const result = await WebAssembly.instantiate(buf, go.importObject);
+				loader.classList.add("done");
+				setTimeout(() => loader.remove(), 350);
+				go.run(result.instance);
+			} catch (err) {
+				console.error(err);
+				status.textContent = "load failed: " + (err && err.message || err);
+			}
+		})();
+	</script>
 </body>
 </html>

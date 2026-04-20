@@ -9,11 +9,12 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
-// Debug menu: three small rectangular buttons clustered in the bottom-right corner of
+// Debug menu: four small rectangular buttons clustered in the bottom-right corner of
 // the full game layout (not the map panel — the map only covers the upper phone area,
 // so anchoring there would put the buttons over the news feed). Order (left → right
-// within the cluster): Win (green), Restart (neutral), Lose (red). Used to preview
-// the staged endgame flow and to start over without quitting the binary.
+// within the cluster): Credits (violet), Win (green), Restart (neutral), Lose (red).
+// Used to preview the staged endgame flow, jump into the credits roll, and start
+// over without quitting the binary.
 const (
 	debugBtnW    = 90
 	debugBtnH    = 44
@@ -27,24 +28,27 @@ var (
 	debugBGWin     = color.NRGBA{R: 0x10, G: 0x40, B: 0x18, A: 0xc8}
 	debugBGLose    = color.NRGBA{R: 0x40, G: 0x10, B: 0x14, A: 0xc8}
 	debugBGRestart = color.NRGBA{R: 0x20, G: 0x28, B: 0x40, A: 0xc8}
+	debugBGCredits = color.NRGBA{R: 0x2e, G: 0x20, B: 0x48, A: 0xc8}
 	debugBGEnded   = color.NRGBA{R: 0x20, G: 0x22, B: 0x26, A: 0xa0} // dimmed once a run has ended
 	debugBorder    = color.NRGBA{R: 0xa0, G: 0xa2, B: 0xa8, A: 0xff}
 	debugLabelFG   = color.NRGBA{R: 0xf0, G: 0xf2, B: 0xf6, A: 0xff}
 )
 
-// debugButtonRects returns Win/Restart/Lose button rects in layout coords, clustered
-// in the bottom-right corner of the full game layout (Win left, Restart middle, Lose
-// right). ok is always true — the coords are constant, no layout dependency.
-func (g *Game) debugButtonRects() (win, restart, lose image.Rectangle, ok bool) {
+// debugButtonRects returns Credits/Win/Restart/Lose button rects in layout coords,
+// clustered in the bottom-right corner of the full game layout (Credits left-most,
+// Lose right-most). ok is always true — the coords are constant, no layout dep.
+func (g *Game) debugButtonRects() (credits, win, restart, lose image.Rectangle, ok bool) {
 	bottom := layoutHeight - debugBtnPadY
 	top := bottom - debugBtnH
 	loseLeft := layoutWidth - debugBtnPadX - debugBtnW
 	restartLeft := loseLeft - debugBtnGap - debugBtnW
 	winLeft := restartLeft - debugBtnGap - debugBtnW
+	creditsLeft := winLeft - debugBtnGap - debugBtnW
+	credits = image.Rect(creditsLeft, top, creditsLeft+debugBtnW, bottom)
 	win = image.Rect(winLeft, top, winLeft+debugBtnW, bottom)
 	restart = image.Rect(restartLeft, top, restartLeft+debugBtnW, bottom)
 	lose = image.Rect(loseLeft, top, loseLeft+debugBtnW, bottom)
-	return win, restart, lose, true
+	return credits, win, restart, lose, true
 }
 
 // handleDebugMenu must run before handlePatchClick in Update so a button press never
@@ -57,12 +61,14 @@ func (g *Game) handleDebugMenu() {
 	if !pressed {
 		return
 	}
-	winR, restartR, loseR, ok := g.debugButtonRects()
+	creditsR, winR, restartR, loseR, ok := g.debugButtonRects()
 	if !ok {
 		return
 	}
 	pt := image.Pt(x, y)
 	switch {
+	case pt.In(creditsR):
+		g.startCredits()
 	case pt.In(winR):
 		g.triggerWin()
 	case pt.In(restartR):
@@ -77,7 +83,7 @@ func (g *Game) handleDebugMenu() {
 // dim to neutral grey to indicate clicks are no-ops; Restart keeps its color since
 // it stays clickable (it's the way back into a live run).
 func (g *Game) drawDebugMenu(screen *ebiten.Image) {
-	winR, restartR, loseR, ok := g.debugButtonRects()
+	creditsR, winR, restartR, loseR, ok := g.debugButtonRects()
 	if !ok || g.overlayLabelFace == nil {
 		return
 	}
@@ -85,6 +91,7 @@ func (g *Game) drawDebugMenu(screen *ebiten.Image) {
 	if g.gameEnded() {
 		winBG, loseBG = debugBGEnded, debugBGEnded
 	}
+	drawDebugButton(screen, creditsR, "Credits", debugBGCredits, g.overlayLabelFace)
 	drawDebugButton(screen, winR, "Win", winBG, g.overlayLabelFace)
 	drawDebugButton(screen, restartR, "Restart", debugBGRestart, g.overlayLabelFace)
 	drawDebugButton(screen, loseR, "Lose", loseBG, g.overlayLabelFace)

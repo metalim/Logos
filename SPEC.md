@@ -343,10 +343,25 @@ Battery state is fully part of `Game` (`batteryIcon *widget.Graphic`, `batterySe
 
 ## Debug menu
 
-`debug_menu.go` draws three buttons (`Win`, `Restart`, `Lose`) clustered in the **bottom-right corner of the full 900×1600 layout** (not the map panel — the map only covers the upper phone area, so anchoring there would put the buttons over the news feed). Layout: `Win` (left) → `Restart` (middle) → `Lose` (right), each `debugBtnW × debugBtnH`, separated by `debugBtnGap = 8`; the cluster is inset by `debugBtnPadX / debugBtnPadY = 12` from the right and bottom layout edges. Fills are `debugBGWin` / `debugBGRestart` / `debugBGLose`.
+`debug_menu.go` draws four buttons (`Credits`, `Win`, `Restart`, `Lose`) clustered in the **bottom-right corner of the full 900×1600 layout** (not the map panel — the map only covers the upper phone area, so anchoring there would put the buttons over the news feed). Layout: `Credits` → `Win` → `Restart` → `Lose`, each `debugBtnW × debugBtnH`, separated by `debugBtnGap = 8`; the cluster is inset by `debugBtnPadX / debugBtnPadY = 12` from the right and bottom layout edges. Fills are `debugBGCredits` (violet) / `debugBGWin` (green) / `debugBGRestart` (slate) / `debugBGLose` (red).
 
-- **Clicks** routed in `handleDebugMenu` before other input consumers. `Win` / `Lose` call `triggerWin` / `triggerLoss` and then no-op while the run is latched. `Restart` stays live after an endgame and calls `g.restart()`, which resets the game state, re-seeds the news feed to `sampleNews`, stops music, and brings the title screen back (so the next dismiss starts the music from zero).
-- **Layout:** `debugButtonRects()` returns three rects; `Restart` is centered between `Win` (left) and `Lose` (right) so the three share a single horizontal strip.
+- **Clicks** routed in `handleDebugMenu` before other input consumers. `Credits` calls `startCredits()` (freezes the sim, replaces the UI with the credits roll). `Win` / `Lose` call `triggerWin` / `triggerLoss` and then no-op while the run is latched. `Restart` stays live after an endgame and calls `g.restart()`, which resets the game state, re-seeds the news feed to `sampleNews`, stops music, and brings the title screen back (so the next dismiss starts the music from zero).
+- **Layout:** `debugButtonRects()` returns four rects anchored to the right edge, laid out right-to-left so future additions grow leftward into the free map area rather than colliding with the feed.
+
+## Credits screen
+
+`credits.go` is a full-layout overlay: solid-black curtain + a bottom-up scrolling block of attribution text, terminated by a large "Thanks for playing" line. Once the terminator parks at `creditsParkOffsetY = layoutHeight / 4` the scroll freezes, a compact stats block ("Companies compromised / sandboxed / under attack / still online", "Exploits unspent", "Logos clock") fades in below it, and a `Try again?` button (`creditsButtonW × creditsButtonH = 360×104`) appears directly under the stats block.
+
+- **Entry:** `startCredits()` (idempotent) stamps `creditsStartedAt`, sets `showingCredits`, and calls `stopMusic()` so the scroll plays in silence. Wired to the debug `Credits` button for now; future endings can call it on win/lose transitions.
+- **Update / Draw:** `handleCredits()` runs first in `Update` — if `showingCredits` it captures pointer input and `return nil`s, freezing all sim systems. `Draw` short-circuits to `drawCredits` after the title-screen check.
+- **Input:**
+  - Tap anywhere during the scroll sets `creditsSkipped = true`, jumping the block directly to its parked position.
+  - Tap on the `Try again?` button clears `showingCredits`, calls `g.restart()` (which resets the sim, re-seeds the feed, stops music, and brings the title back), and control returns to the normal title-screen path.
+  - Off-button taps once parked are ignored so fat-fingered presses don't restart accidentally.
+- **Scroll math:** `creditsScrollPxPerSec = 85`; current block top Y = `layoutHeight - elapsed * speed`. Parked top Y = `creditsParkOffsetY - offsets[last]` where `offsets` come from `creditsLayout()` (cumulative ascent + descent per entry, plus `creditsSectionGap = 42` before each header, `creditsFinalGap = 90` before the terminator, `creditsTitleGapBelow = 60` after the title line).
+- **Typography:** Four cached `text.Face`s loaded lazily on first draw: title (`creditsTitleFontPt = 58`), header (`26`), body (`38`), final (`46`), plus a separate stats face (`30`). Title and final lines share the attack-yellow palette (`#ffe870`); headers are muted grey; body is near-white; stats labels dim, values bright.
+- **Stats layout:** Two columns centered on `layoutWidth/2`, labels right-aligned just left of center and values left-aligned just right of it, so the monospace values form a tidy column regardless of label length.
+- **File:** `credits.go` (new) — entries, faces, layout, input, draw.
 
 ## File map
 
@@ -361,7 +376,8 @@ Battery state is fully part of `Game` (`batteryIcon *widget.Graphic`, `batterySe
 | `overlay.go` | Game-state overlay (two rows: infection + containment with bars and rate labels; right-edge `EXPLOITS` counter) drawn on top of the map |
 | `patch_menu.go` | `Defend` / `"Patch"` action menu for attacked nodes; `applyPatch`/`applyDefend` consume patches, play their SFX, `applyPatch` emits a `pickPatchNews` line into the feed |
 | `gameover.go` | `endgame` latch + message pools, `triggerWin`/`triggerLoss`, `advanceWinSequence`/`advanceLossSequence` (email + battery drain + screen off + Restart overlay) |
-| `debug_menu.go` | Bottom-right-corner `Win` / `Restart` / `Lose` buttons pinned to the full layout; `Restart` stays live after an endgame to get out of the screen-off state fast |
+| `debug_menu.go` | Bottom-right-corner `Credits` / `Win` / `Restart` / `Lose` buttons pinned to the full layout; `Restart` stays live after an endgame to get out of the screen-off state fast; `Credits` jumps into the credits roll at any time |
+| `credits.go` | Credits-roll overlay: bottom-up scrolling attribution block, "Thanks for playing" terminator, parked world-state stats block, `Try again?` button that restarts back to the title |
 | `hint.go` | First-run "tap yellow nodes" banner under the overlay strip; process-scoped `hintEverDismissed` latch, dismissed on first patch menu open |
 | `feed_drag.go` | Touch / left-mouse drag-to-scroll for the news feed |
 | `wheel_native.go` | `feedWheelContentPixelsPerUnit = 45.0` (build tag `!js`, layout-pixel-scaled) |

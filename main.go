@@ -103,6 +103,13 @@ type Game struct {
 	mapLabelFace     text.Face
 	overlayLabelFace text.Face
 	overlayValueFace text.Face
+
+	// Credits-screen faces, lazy-loaded on first entry and cached.
+	creditsTitleFace  text.Face
+	creditsHeaderFace text.Face
+	creditsBodyFace   text.Face
+	creditsFinalFace  text.Face
+	creditsStatsFace  text.Face
 	nodes            []Node
 	edges            []Edge
 
@@ -171,6 +178,13 @@ type Game struct {
 	// musicPlayer holds the looping in-game track. Non-nil between dismissTitle and
 	// the next endgame transition (or the next restart). Closed + niled on stop.
 	musicPlayer *audio.Player
+
+	// Credits-roll state. Triggered from the debug menu (for now); freezes the sim
+	// and replaces the UI with the credits.go overlay until the player clicks the
+	// Try again? button (which restarts back into the title screen).
+	showingCredits   bool
+	creditsStartedAt time.Time
+	creditsSkipped   bool
 }
 
 func loadFont(size float64) (text.Face, error) {
@@ -475,6 +489,9 @@ func (g *Game) Update() error {
 	if g.handleTitleScreen() {
 		return nil
 	}
+	if g.handleCredits() {
+		return nil
+	}
 	g.checkGameOver()
 	if g.handleScreenOff() {
 		return nil
@@ -515,6 +532,10 @@ func (g *Game) Update() error {
 func (g *Game) Draw(screen *ebiten.Image) {
 	if g.showTitle {
 		g.drawTitleScreen(screen)
+		return
+	}
+	if g.showingCredits {
+		g.drawCredits(screen)
 		return
 	}
 	if g.end != nil && g.end.screenOff {

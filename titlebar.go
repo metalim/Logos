@@ -42,8 +42,9 @@ var (
 
 // populatePhoneTitleBar fills the empty status-bar container with a phone-style header:
 // 24h clock on the left, signal-strength bars and a battery glyph on the right.
-// Returns the clock Text widget so the game loop can refresh its label every frame.
-func populatePhoneTitleBar(bar *widget.Container, face text.Face) *widget.Text {
+// Returns the clock Text widget (for per-frame label refresh) and the battery Graphic
+// (so the loss sequence can animate its segments draining to zero).
+func populatePhoneTitleBar(bar *widget.Container, face text.Face) (*widget.Text, *widget.Graphic) {
 	clock := widget.NewText(
 		widget.TextOpts.Text(time.Now().Format(clockTimeFormat), &face, titleBarFG),
 		widget.TextOpts.WidgetOpts(
@@ -81,16 +82,17 @@ func populatePhoneTitleBar(bar *widget.Container, face text.Face) *widget.Text {
 			widget.WidgetOpts.LayoutData(widget.RowLayoutData{Position: widget.RowLayoutPositionCenter}),
 		),
 	))
-	right.AddChild(widget.NewGraphic(
+	battery := widget.NewGraphic(
 		widget.GraphicOpts.Image(makeBatteryIcon(batterySegments)),
 		widget.GraphicOpts.WidgetOpts(
 			widget.WidgetOpts.LayoutData(widget.RowLayoutData{Position: widget.RowLayoutPositionCenter}),
 		),
-	))
+	)
+	right.AddChild(battery)
 
 	bar.AddChild(clock)
 	bar.AddChild(right)
-	return clock
+	return clock, battery
 }
 
 func makeSignalIcon(filled, total int) *ebiten.Image {

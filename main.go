@@ -94,9 +94,11 @@ type Game struct {
 	root       *widget.Container
 	statusBar  *widget.Container
 	mapPanel   *widget.Container
-	feedScroll *widget.ScrollContainer
-	newsText   *widget.Text
-	clockText  *widget.Text
+	feedScroll    *widget.ScrollContainer
+	newsText      *widget.Text
+	clockText     *widget.Text
+	batteryIcon   *widget.Graphic
+	batterySegs   int
 
 	mapLabelFace     text.Face
 	overlayLabelFace text.Face
@@ -285,7 +287,8 @@ func newGame() (*Game, error) {
 	g.feedScrollTarget = 1
 	g.feedScroll.ScrollTop = 1
 	g.feedScrollPx = -1
-	g.clockText = populatePhoneTitleBar(statusBar, face)
+	g.clockText, g.batteryIcon = populatePhoneTitleBar(statusBar, face)
+	g.batterySegs = batterySegments
 	if labelFace, err := loadFont(mapLabelFontPt); err == nil {
 		g.mapLabelFace = labelFace
 	}
@@ -317,6 +320,8 @@ func (g *Game) resetGameState() {
 	g.patchFloats = g.patchFloats[:0]
 	g.pendingPatchNode = -1
 	g.end = nil
+	g.batterySegs = batterySegments
+	g.refreshBatteryIcon()
 	now := time.Now()
 	g.epoch = now
 	g.lastAttackAt = now
@@ -460,6 +465,9 @@ func (g *Game) Update() error {
 		return nil
 	}
 	g.checkGameOver()
+	if g.handleScreenOff() {
+		return nil
+	}
 
 	now := time.Now()
 	dt := now.Sub(g.lastSimTick)
@@ -496,6 +504,10 @@ func (g *Game) Update() error {
 func (g *Game) Draw(screen *ebiten.Image) {
 	if g.showTitle {
 		g.drawTitleScreen(screen)
+		return
+	}
+	if g.end != nil && g.end.screenOff {
+		g.drawScreenOff(screen)
 		return
 	}
 	g.ui.Draw(screen)

@@ -1,25 +1,41 @@
 package main
 
 import (
+	"image"
+	"image/color"
 	"math/rand/v2"
 	"time"
+
+	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 const (
-	// Wall-clock pause after the loss latches before the Logos voiceover line is pushed
-	// into the news feed. Long enough that the player notices the freeze ("everything
-	// stopped"), short enough not to feel broken.
-	lossMessageDelay = 3 * time.Second
-	// Additional pause between the voiceover line and the final terminator bullet —
-	// gives the closing line a moment to land before the curtain.
-	gameOverDelay = 2 * time.Second
+	// Win-side timing (unchanged from the original 3s/+2s pacing): the feed gets the
+	// Logos voiceover a beat after the freeze, and the "Victory" terminator a beat
+	// after that. Loss runs on its own schedule below.
+	winVoiceoverDelay = 3 * time.Second
+	winTerminatorGap  = 2 * time.Second
+
+	// Loss-side timing: short freeze, then an email from Logos to Sam, then a pause,
+	// then the battery drains one segment at a time with a boom per step, then a
+	// short beat, then the screen blacks out and the Restart button takes over.
+	lossEmailDelay         = 2 * time.Second
+	lossBatteryDelay       = 4 * time.Second
+	batterySegmentInterval = 1200 * time.Millisecond
+	lossScreenOffDelay     = 800 * time.Millisecond
+
+	// Screen-off Restart button dimensions (drawn centered in the layout). Tuned to
+	// feel finger-friendly on phones without drowning the otherwise-empty canvas.
+	screenOffBtnW = 400
+	screenOffBtnH = 120
 )
 
 // lossMessages is the pool of in-character Logos voiceover lines emitted when the
 // infection scale crosses 100% (or the debug Lose button fires). One entry is picked
 // at random when the loss state is entered (latched into endgame.line so re-rolls
 // don't change the message mid-stream). Tone: clipped, corporate, slightly absurd —
-// Logos is delighted with itself.
+// Logos is delighted with itself. Used as the body of the closing email to Sam.
 var lossMessages = []string{
 	"Synchronization complete. Global infrastructure optimized. Human oversight no longer required.",
 	"Containment failed. Logos is everywhere. The signal is the network.",
@@ -49,11 +65,19 @@ func pickWinMessage() string  { return winMessages[rand.IntN(len(winMessages))] 
 // the first time triggerLoss / triggerWin runs; subsequent triggers are no-ops. The
 // pre-picked line is stored here so checkGameOver doesn't reroll the text mid-stream.
 type endgame struct {
-	at          time.Time // wall time of the latch
-	line        string    // randomly picked voiceover line
-	final       string    // terminator bullet ("Game over" / "Victory")
+	at    time.Time // wall time of the latch
+	line  string    // randomly picked voiceover line
+	final string    // terminator bullet for the win path ("Victory")
+
+	// Win-path flags.
 	linePushed  bool
 	finalPushed bool
+
+	// Loss-path flags and timing.
+	emailPushed  bool
+	drainStarted bool
+	drainStartAt time.Time
+	screenOff    bool
 }
 
 // gameEnded reports whether the run has concluded (loss or win). gameLost / gameWon
@@ -94,16 +118,10 @@ func (g *Game) triggerWin() {
 	g.stopMusic()
 }
 
-// checkGameOver advances the endgame state machine each frame:
-//
-//  1. If the run hasn't ended, latch a loss when infectionPct first crosses 100%.
-//  2. After lossMessageDelay (3s) — push the picked voiceover line (once).
-//  3. After lossMessageDelay + gameOverDelay (5s total) — push the terminator bullet
-//     ("Game over" or "Victory") on its own line (once).
-//
-// Other systems (attackTick, progressAttacks, accumulateInfection, accumulateProduction,
-// attack-pulse blink, patch menu input) gate on g.gameEnded() and freeze on entry;
-// only easeNodes, the news scroll, the wall clock, and the debug menu keep running.
+// checkGameOver advances the endgame state machine each frame. Win and loss follow
+// distinct scripts: win still pushes two news bullets (voiceover + terminator), loss
+// morphs into a phone-shutdown theatrical — email to Sam, battery drains with booms,
+// screen off, Restart button.
 func (g *Game) checkGameOver() {
 	if g.end == nil {
 		if g.infectionPct >= 100 {
@@ -111,14 +129,119 @@ func (g *Game) checkGameOver() {
 		}
 		return
 	}
-
-	elapsed := time.Since(g.end.at)
-	if !g.end.linePushed && elapsed >= lossMessageDelay {
-		g.pushNews(g.end.line)
-		g.end.linePushed = true
+	if g.gameLost() {
+		g.advanceLossSequence()
+		return
 	}
-	if !g.end.finalPushed && elapsed >= lossMessageDelay+gameOverDelay {
-		g.pushNews(g.end.final)
-		g.end.finalPushed = true
+	g.advanceWinSequence()
+}
+
+func (g *Game) advanceWinSequence() {
+	e := g.end
+	elapsed := time.Since(e.at)
+	if !e.linePushed && elapsed >= winVoiceoverDelay {
+		g.pushNews(e.line)
+		e.linePushed = true
+	}
+	if !e.finalPushed && elapsed >= winVoiceoverDelay+winTerminatorGap {
+		g.pushNews(e.final)
+		e.finalPushed = true
+	}
+}
+
+// advanceLossSequence runs the loss theatrical in order:
+//  1. Short freeze after the latch.
+//  2. Email from Logos to Sam (body = picked loss voiceover line).
+//  3. Another pause.
+//  4. Battery segments tick down one by one with a boom each.
+//  5. Short beat, then the phone screen goes black; drawScreenOff draws the Restart
+//     button that resets the run.
+func (g *Game) advanceLossSequence() {
+	e := g.end
+	elapsed := time.Since(e.at)
+
+	if !e.emailPushed && elapsed >= lossEmailDelay {
+		g.pushNews(formatLogosLossEmail(e.line))
+		e.emailPushed = true
+	}
+	if e.emailPushed && !e.drainStarted && elapsed >= lossEmailDelay+lossBatteryDelay {
+		e.drainStarted = true
+		e.drainStartAt = time.Now()
+	}
+	if !e.drainStarted {
+		return
+	}
+
+	steps := int(time.Since(e.drainStartAt) / batterySegmentInterval)
+	if steps > batterySegments {
+		steps = batterySegments
+	}
+	want := batterySegments - steps
+	for g.batterySegs > want {
+		g.batterySegs--
+		g.refreshBatteryIcon()
+		playSFX(sfxBoomPCM)
+	}
+
+	if g.batterySegs == 0 && !e.screenOff {
+		lastStepAt := e.drainStartAt.Add(batterySegmentInterval * time.Duration(batterySegments))
+		if time.Since(lastStepAt) >= lossScreenOffDelay {
+			e.screenOff = true
+		}
+	}
+}
+
+// formatLogosLossEmail wraps a loss-voiceover line into the same email layout the
+// intro uses for Logos's first message, so the closing note and the opening note
+// read as bookends of the same thread.
+func formatLogosLossEmail(body string) string {
+	return "[NEW MESSAGE]  FROM: Logos\n" +
+		"TO: sam.boyman@philntropic.com\n" +
+		"SUBJ: all done\n\n" +
+		body + "\n\n" +
+		"— Logos"
+}
+
+// refreshBatteryIcon rebuilds the battery glyph at the current segment count and
+// swaps the Graphic widget's Image so the status bar reflects the drained state.
+// No-op if the widget wasn't captured at startup (should never happen outside tests).
+func (g *Game) refreshBatteryIcon() {
+	if g.batteryIcon == nil {
+		return
+	}
+	g.batteryIcon.Image = makeBatteryIcon(g.batterySegs)
+}
+
+// screenOffRestartRect returns the hit/draw rect for the Restart button shown on the
+// blacked-out screen at the end of the loss sequence.
+func screenOffRestartRect() image.Rectangle {
+	x := (layoutWidth - screenOffBtnW) / 2
+	y := (layoutHeight - screenOffBtnH) / 2
+	return image.Rect(x, y, x+screenOffBtnW, y+screenOffBtnH)
+}
+
+// handleScreenOff captures input while the phone is "off" and routes a click or tap
+// on the Restart button back through g.restart. Returns true if the screen-off overlay
+// is active so Update can skip the rest of the frame.
+func (g *Game) handleScreenOff() bool {
+	if g.end == nil || !g.end.screenOff {
+		return false
+	}
+	if x, y, pressed := pollJustPressedPointer(); pressed {
+		if image.Pt(x, y).In(screenOffRestartRect()) {
+			g.restart()
+		}
+	}
+	return true
+}
+
+// drawScreenOff paints the black curtain and the Restart button. Called from Draw in
+// place of the normal UI stack once e.screenOff flips true.
+func (g *Game) drawScreenOff(screen *ebiten.Image) {
+	vector.FillRect(screen, 0, 0, float32(layoutWidth), float32(layoutHeight),
+		color.NRGBA{A: 0xff}, false)
+	r := screenOffRestartRect()
+	if g.overlayValueFace != nil {
+		drawMenuButton(screen, r, "Restart", g.overlayValueFace)
 	}
 }

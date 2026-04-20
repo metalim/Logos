@@ -648,6 +648,7 @@ func (g *Game) handlePatchClick() {
 	if idx := g.attackNodeAt(x, y); idx >= 0 {
 		g.pendingPatchNode = idx
 		playSFX(sfxBlipPCM)
+		dismissHint()
 	}
 }
 

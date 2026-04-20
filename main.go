@@ -525,6 +525,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	g.drawNodeMap(screen)
 	g.drawPatchFloats(screen)
 	g.drawGameOverlay(screen)
+	g.drawHint(screen)
 	g.drawPatchMenu(screen)
 	g.drawDebugMenu(screen)
 }

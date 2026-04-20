@@ -160,6 +160,16 @@ Non-Normal states (`Attack`, `Infected`, `Patched`) are skipped, so the timer **
 - `patchMenuLayout(nodeX, nodeY)` returns the two button rects, clamped horizontally inside `mapPanel.GetWidget().Rect` so it never spills off-screen.
 - `drawPatchMenu` is called last in `Game.Draw` (after the overlay) so the menu sits above everything.
 
+## First-run hint
+
+`hint.go` renders a single-line banner under the overlay strip the first time the player sees an Attack node, explaining the core interaction.
+
+- **Text:** `hintText = "Tap yellow nodes to open the defense menu."` (`overlayLabelFace`, centered).
+- **Look:** dark semi-transparent box (`hintBG = #0a0b0ed8`) + yellow border (`hintBorder = #ffe870`, matches `nodeStrokeAttack`) + `hintPadX = 24` / `hintPadY = 14` padding. Width auto-sized via `text.Measure`. Positioned `hintMarginTop = 12` px below the overlay strip, horizontally centered in `mapPanel.GetWidget().Rect`.
+- **Show conditions** (`shouldShowHint`): not dismissed, not on title screen, no endgame latch, **and** at least one node currently in `NodeStateAttack` — the hint only appears when there's something to actually tap.
+- **Dismissal** (`dismissHint`, called from `handlePatchClick` the first time the player opens a patch menu on an Attack node): latches the process-wide `hintEverDismissed` flag. Restarting inside the same session does **not** re-show the hint; a fresh binary start or a WASM page reload does. No persistent storage yet — the flag is plain package state.
+- **Draw order:** `drawHint` runs in `Game.Draw` after `drawGameOverlay` and before `drawPatchMenu`, so the hint sits on top of nodes but the patch menu sits on top of the hint (and dismisses it the frame it appears).
+
 ## Game-state overlay (top of map)
 
 - **Where:** drawn last in `Game.Draw` (after `ui.Draw` and `drawNodeMap`, before `drawPatchMenu`), so it sits **on top** of the map. Position: `mapPanel.GetWidget().Rect` shifted in by `overlayMarginPx = 15` on every side, height `overlayHeightPx = 60`. Background is semi-transparent dark (`#0a0b0e c8`) with a `overlayBorderW = 2` px border (centered on the stroke), so the topmost ring nodes still bleed through visually.
@@ -167,7 +177,7 @@ Non-Normal states (`Attack`, `Infected`, `Patched`) are skipped, so the timer **
 - **Layout:** two rows inside the overlay strip — `INFECTION` on top, `CONTAINMENT` below, and a right-edge `xN EXPLOITS` indicator centered across both rows.
   - **Top row (infection, left):** `INFECTION` label (`overlayLabelFontPt = 23`) → progress bar (`infectionBarW × infectionBarH = 225×15`, dark track + red fill proportional to `infectionPct`) → `NN.N%` value (`overlayValueFontPt = 30`, one decimal place) → `+X.X%/s` rate label (label face, in the infection fill color).
   - **Bottom row (containment, left):** `CONTAINMENT` label → bar (same size, teal fill proportional to `containmentPct`) → value → `+X.X%/s` rate label (current rate from `currentContainmentRate()`, teal).
-  - **Right edge:** `xN` value → `EXPLOITS` label (uppercase, no quotes), centered vertically on the overlay strip across both rows.
+  - **Right edge:** `xN` value → `EXPLOITS` label (uppercase, no quotes), centered vertically on the overlay strip across both rows. The two use different face sizes (`overlayValueFace` vs `overlayLabelFace`), so `AlignCenter` at the same `cy` would leave their baselines ~2-3 px apart. Instead the value stays centered on `cy` and the label's `cy` is shifted by `(valAscent-valDescent)/2 - (lblAscent-lblDescent)/2` (read via `Face.Metrics()`) so both glyph baselines coincide.
   - All text uses `text.AlignCenter` for the secondary axis to vertical-center against its row midline; `drawAlignedText` returns rendered width so left/right chains can advance/retreat without separate `Measure` calls.
 - **Faces:** two cached on `Game` (`overlayLabelFace`, `overlayValueFace`) loaded via `loadFont`; missing faces silently skip the overlay (no crash).
 
@@ -333,7 +343,7 @@ Battery state is fully part of `Game` (`batteryIcon *widget.Graphic`, `batterySe
 
 ## Debug menu
 
-`debug_menu.go` draws three bottom-of-screen buttons (`Win`, `Restart`, `Lose`) with `debugBGWin` / `debugBGRestart` / `debugBGLose` fills.
+`debug_menu.go` draws three buttons (`Win`, `Restart`, `Lose`) clustered in the **bottom-right corner of the full 900×1600 layout** (not the map panel — the map only covers the upper phone area, so anchoring there would put the buttons over the news feed). Layout: `Win` (left) → `Restart` (middle) → `Lose` (right), each `debugBtnW × debugBtnH`, separated by `debugBtnGap = 8`; the cluster is inset by `debugBtnPadX / debugBtnPadY = 12` from the right and bottom layout edges. Fills are `debugBGWin` / `debugBGRestart` / `debugBGLose`.
 
 - **Clicks** routed in `handleDebugMenu` before other input consumers. `Win` / `Lose` call `triggerWin` / `triggerLoss` and then no-op while the run is latched. `Restart` stays live after an endgame and calls `g.restart()`, which resets the game state, re-seeds the news feed to `sampleNews`, stops music, and brings the title screen back (so the next dismiss starts the music from zero).
 - **Layout:** `debugButtonRects()` returns three rects; `Restart` is centered between `Win` (left) and `Lose` (right) so the three share a single horizontal strip.
@@ -351,7 +361,8 @@ Battery state is fully part of `Game` (`batteryIcon *widget.Graphic`, `batterySe
 | `overlay.go` | Game-state overlay (two rows: infection + containment with bars and rate labels; right-edge `EXPLOITS` counter) drawn on top of the map |
 | `patch_menu.go` | `Defend` / `"Patch"` action menu for attacked nodes; `applyPatch`/`applyDefend` consume patches, play their SFX, `applyPatch` emits a `pickPatchNews` line into the feed |
 | `gameover.go` | `endgame` latch + message pools, `triggerWin`/`triggerLoss`, `advanceWinSequence`/`advanceLossSequence` (email + battery drain + screen off + Restart overlay) |
-| `debug_menu.go` | Bottom-of-screen `Win` / `Restart` / `Lose` buttons; `Restart` stays live after an endgame to get out of the screen-off state fast |
+| `debug_menu.go` | Bottom-right-corner `Win` / `Restart` / `Lose` buttons pinned to the full layout; `Restart` stays live after an endgame to get out of the screen-off state fast |
+| `hint.go` | First-run "tap yellow nodes" banner under the overlay strip; process-scoped `hintEverDismissed` latch, dismissed on first patch menu open |
 | `feed_drag.go` | Touch / left-mouse drag-to-scroll for the news feed |
 | `wheel_native.go` | `feedWheelContentPixelsPerUnit = 45.0` (build tag `!js`, layout-pixel-scaled) |
 | `wheel_js.go` | `feedWheelContentPixelsPerUnit = 2.5` (build tag `js`, layout-pixel-scaled) |

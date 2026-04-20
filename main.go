@@ -185,6 +185,16 @@ type Game struct {
 	showingCredits   bool
 	creditsStartedAt time.Time
 	creditsSkipped   bool
+
+	// pendingNews holds news lines scheduled via scheduleNews; each Update frame
+	// flushPendingNews pushes the ones whose `at` timestamp has passed. Lets patch
+	// consequences (and anything else we want delayed) land a beat after the event.
+	pendingNews []pendingNewsItem
+}
+
+type pendingNewsItem struct {
+	line string
+	at   time.Time
 }
 
 func loadFont(size float64) (text.Face, error) {
@@ -333,6 +343,7 @@ func (g *Game) resetGameState() {
 	g.patchesLeft = startingPatchCount
 	g.patchFloats = g.patchFloats[:0]
 	g.pendingPatchNode = -1
+	g.pendingNews = g.pendingNews[:0]
 	g.end = nil
 	g.batterySegs = batterySegments
 	g.refreshBatteryIcon()
@@ -485,6 +496,40 @@ func (g *Game) pushNews(line string) {
 	playSFX(sfxNewsPCM)
 }
 
+// scheduleNews queues a news line to appear in the feed after `delay`. Used by
+// applyPatch so the consequence line lands a beat after the patch itself (boom +
+// node lockdown), giving the player time to register the action before reading
+// about the economic fallout. Empty lines are dropped (no silent placeholders).
+func (g *Game) scheduleNews(line string, delay time.Duration) {
+	if line == "" {
+		return
+	}
+	g.pendingNews = append(g.pendingNews, pendingNewsItem{
+		line: line,
+		at:   time.Now().Add(delay),
+	})
+}
+
+// flushPendingNews pushes any scheduled news whose deadline has passed. Called
+// from Update each frame so patch-consequence lines appear with the scripted
+// delay regardless of frame rate. Preserves order via an in-place compaction so
+// a flurry of patches still surfaces consequences in the order they were queued.
+func (g *Game) flushPendingNews() {
+	if len(g.pendingNews) == 0 {
+		return
+	}
+	now := time.Now()
+	kept := g.pendingNews[:0]
+	for _, p := range g.pendingNews {
+		if !now.Before(p.at) {
+			g.pushNews(p.line)
+			continue
+		}
+		kept = append(kept, p)
+	}
+	g.pendingNews = kept
+}
+
 func (g *Game) Update() error {
 	if g.handleTitleScreen() {
 		return nil
@@ -526,6 +571,7 @@ func (g *Game) Update() error {
 	g.handlePatchClick()
 	g.handleFeedDrag()
 	g.stepSmoothFeedScroll()
+	g.flushPendingNews()
 	return nil
 }
 

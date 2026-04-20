@@ -19,6 +19,11 @@ const (
 	// node circle and its label).
 	menuOffsetY = 50
 	menuStrokeW = 2
+
+	// patchNewsDelay is the gap between the patch landing (boom SFX + node lockdown)
+	// and the consequence news line appearing in the feed. Gives the player a beat
+	// to register the patch before reading about its economic fallout.
+	patchNewsDelay = 1500 * time.Millisecond
 )
 
 var (
@@ -103,7 +108,7 @@ func (g *Game) applyPatch(nodeIdx int) {
 	}
 	g.nodes[nodeIdx].State = NodeStatePatched
 	g.patchesLeft--
-	g.pushNews(g.pickPatchNews(nodeIdx))
+	g.scheduleNews(g.pickPatchNews(nodeIdx), patchNewsDelay)
 	playSFX(sfxBoomPCM)
 }
 

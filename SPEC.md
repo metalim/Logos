@@ -280,7 +280,7 @@ Every `NodeDef` in `staticCatalog` carries a `PatchNews []string` pool — 2-3 s
 English consequence lines describing the macroeconomic fallout of taking that node out
 of play. Lines are written without the leading bullet; `pushNews` prepends `"\n\n• "`.
 
-- **Trigger:** `applyPatch` (the `"Patch"` menu action) calls `g.pushNews(g.pickPatchNews(nodeIdx))` after flipping the node to `NodeStatePatched`. `applyDefend` does **not** trigger news — defending only bounces the node back to Normal, no economic damage.
+- **Trigger:** `applyPatch` (the `"Patch"` menu action) flips the node to `NodeStatePatched`, plays `boom`, and calls `g.scheduleNews(g.pickPatchNews(nodeIdx), patchNewsDelay)` — the news line is queued in `g.pendingNews` and flushed by `flushPendingNews` (run each `Update` tick) once `patchNewsDelay = 1.5s` has passed, so the consequence lands a beat after the patch rather than stepping on the boom SFX. `applyDefend` does **not** trigger news — defending only bounces the node back to Normal, no economic damage.
 - **Selection:** `pickPatchNews` returns one entry uniformly at random from `network.Defs[node.DefIdx].PatchNews`; missing pool → empty string → silent (defensive, no crash on catalog gaps).
 - **Feed update:** `pushNews` appends the line to `newsText.Label`, calls `RequestRelayout`, and sets `feedScrollNeedBottom` so the next frame auto-scrolls to the bottom (deferred because PreferredSize during Layout has crashed ebitenui in the past).
 - **Style:** the writing keeps the example tone — two sentences, concrete consequence, slightly absurd-realistic. New nodes added to the catalog should follow the same shape so the feed reads consistently.

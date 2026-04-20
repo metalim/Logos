@@ -47,12 +47,13 @@ Percents are constants (`bandTopPercent = 6`, `bandMidPercent = 60`); bottom ban
 
 - **Rendering:** custom draw on top of `ui.Draw` in `Game.Draw`, clipped visually to `mapPanel.GetWidget().Rect`. The `mapPanel` itself stays an empty styled container — it only provides the layout rectangle.
 - **Data model:** the world is a static `Network` (`network.go`) plus a dynamic visible subset (`Game.nodes`, `Game.edges`, `Game.outerRing`, `Game.innerRing`). The visible set grows during play via [reveal-on-capture](#reveal-on-capture).
-- **Initial visible set:** central hub `Phil&Tropic` (Logos's escape origin per CONCEPT, starts `Infected`) + 10 ring nodes from the Project Panopticon roster (`initialRingNames`), including `Monolith Foundation` (internet-core analogue ≈ Linux Foundation). Edges to start: hub spokes + Alliance perimeter, both inferred from the static graph by `addVisibleNode`.
+- **Initial visible set:** central hub `Phil&Tropic` (Logos's escape origin per CONCEPT, starts `Infected`) + 10 ring nodes from the Project Panopticon roster (`initialRingNames`), including `Monolith Foundation` (internet-core analogue ≈ Linux Foundation). Two of the ten — `BootLoop` and `Fiasco Sys` — are Security, so the player starts with exactly two active patch producers. Edges to start: hub spokes + Alliance perimeter, both inferred from the static graph by `addVisibleNode`.
 - **Coordinates:** `Node.X/Y` are normalized `[0..1]` inside the inner rect (`rect` minus `mapPaddingPx = 25` on every side); two layered rings around the hub:
   - `outerRingRadius = mapOuterRingRel = 0.36` — `Normal` / `Attack` / `Patched` nodes (slot list in `Game.outerRing`).
   - `innerRingRadius = 0.18` — non-hub `Infected` nodes (slot list in `Game.innerRing`).
 - **Visuals:**
   - **Edges:** `vector.StrokeLine` with `edgeStrokeW = 3`, dim grey.
+  - **Hidden-edge stubs:** `drawHiddenEdgeStubs` emits a short outward segment (`hiddenStubLenPx = 40`) from every outer-ring node toward each of its currently hidden catalog neighbours. Stubs fan around the node's radial-outward direction (`hiddenStubFanDeg = 40`) so several stubs form a small antenna bundle. **Security hint:** stubs pointing at hidden Security neighbours are drawn in teal (`edgeSecurityColor`) in a second pass so they stay visible on top of neutral stubs sharing the same node. Only outer-ring members emit stubs (hub and inner-ring nodes would fire through the outer ring).
   - **Nodes:** `vector.FillCircle(r = nodeRadius = 28)` then `vector.StrokeCircle(strokeWidth = nodeStrokeW = 5)`. Fill/stroke colors come from `nodeColors(state)`. Antialiased.
   - **Labels:** centered under each node (`text.Measure` → `text.Draw`), `mapLabelFontPt = 23`, separate `text.Face` cached on `Game.mapLabelFace` (loaded via `loadFont`).
 - **Node state palette:** Normal grey, Attack yellow, Infected red, Patched near-black with a dim ring.
@@ -85,7 +86,7 @@ Full real-world analog table lives in [CONCEPT.md](CONCEPT.md). The game logic i
 Phil&Tropic starts `Infected`; everything else starts `Normal`.
 
 - **`attackTick` (`nodes.go`)** runs every `attackInterval = 3s` (driven from `Update` via `lastAttackAt`). It computes `infectedFrontier(nodes, edges)` — `Normal` nodes adjacent to any `Infected` node — and promotes a random one to `Attack`, stamping `AttackedAt = time.Now()`. No-op when the frontier is empty.
-- **`progressAttacks` (`nodes.go`)** runs every `Update` so capture timing is independent of `attackInterval`. For each `Attack` node, if `time.Since(AttackedAt) >= Defense`, flips it to `Infected`, adds `infectionOneShotPct = 1.0` to `g.infectionPct`, and triggers [reveal-on-capture](#reveal-on-capture). Iteration uses `for i := range g.nodes`, so newly appended visible nodes are not re-visited in the same frame.
+- **`progressAttacks` (`nodes.go`)** runs every `Update` so capture timing is independent of `attackInterval`. For each `Attack` node, if `time.Since(AttackedAt) >= Defense`, flips it to `Infected`, adds `infectionOneShotPct = 0.5` to `g.infectionPct`, and triggers [reveal-on-capture](#reveal-on-capture). Iteration uses `for i := range g.nodes`, so newly appended visible nodes are not re-visited in the same frame.
 - **Pulse:** `Attack` nodes pulse — fill alpha is modulated by `attackBlinkAlpha(time.Since(g.epoch))` (sine, period `attackBlinkPeriodSec = 0.6`, floor `attackBlinkMinAlpha = 0.25`). All attacking nodes blink in phase because the clock is shared. Stroke stays opaque so the node never disappears.
 
 ### Reveal-on-capture
@@ -94,8 +95,9 @@ When `progressAttacks` flips a node `Attack → Infected`, `revealNeighbors(pare
 
 1. **Migrate inward.** Remove the parent from `outerRing` (record the slot), append it to `innerRing`. `relayoutTargets` will retarget it from `outerRingRadius` to `innerRingRadius` — `easeNodes` then animates the node smoothly toward the hub.
 2. **Sample hidden neighbours.** Walk `network.Adj[parent.DefIdx]`, collect those not yet in `visibleByDef`, shuffle, and take up to `revealMaxNeighbors = 3`.
-3. **Splice into the vacated slot.** For each picked neighbour, `addVisibleNode(defIdx, parentX, parentY)` appends a fresh `Node` at the parent's current screen position (so it visually emerges from where the parent just was), wires edges to all already-visible static neighbours, and inserts the new slot at the parent's old `outerRing` index.
-4. **Relayout.** `relayoutTargets` redistributes both rings evenly by angle (`-π/2` start, clockwise); the new nodes get target slots near the parent's old position, the rest of `outerRing` shifts to make room.
+3. **Security bias.** `producingSecurityCount()` counts visible Security nodes currently in `Normal` (i.e. actively minting patches). If the result is `≤ 1`, the shuffled `hidden` list is re-partitioned so Security catalog entries move to the front before the `revealMaxNeighbors` truncation. Prevents RNG cascades from starving patch production to zero after a bad run; no-op while both starting Security nodes are still up.
+4. **Splice into the vacated slot.** For each picked neighbour, `addVisibleNode(defIdx, parentX, parentY)` appends a fresh `Node` at the parent's current screen position (so it visually emerges from where the parent just was), wires edges to all already-visible static neighbours, and inserts the new slot at the parent's old `outerRing` index.
+5. **Relayout.** `relayoutTargets` redistributes both rings evenly by angle (`-π/2` start, clockwise); the new nodes get target slots near the parent's old position, the rest of `outerRing` shifts to make room.
 
 No hidden-neighbour candidates → no spawns; the parent still migrates inward. The hub never reveals (it starts `Infected` and never enters `Attack`).
 
@@ -107,20 +109,32 @@ No hidden-neighbour candidates → no spawns; the parent still migrates inward. 
 
 Two channels feed `g.infectionPct` (clamped `[0, 100]` at draw time):
 
-- **Initial:** `initialInfectionPct(nodes) = infectionOneShotPct * count(Infected)` at game start (Phil&Tropic alone → 1.0%).
-- **One-shot per capture:** `progressAttacks` adds `infectionOneShotPct = 1.0` whenever an `Attack` node flips to `Infected`.
+- **Initial:** `initialInfectionPct(nodes) = infectionOneShotPct * count(Infected)` at game start (Phil&Tropic alone → 0.5%).
+- **One-shot per capture:** `progressAttacks` adds `infectionOneShotPct = 0.5` whenever an `Attack` node flips to `Infected`.
 - **Continuous:** `accumulateInfection(dt)` adds `infectionRatePerSec * dt * countInfected(g.nodes)` every frame (`infectionRatePerSec = 0.1` %/s per infected node). The overlay shows the current rate as `+X.X%/s` next to the percent value.
 
-`g.lastSimTick` is the single source of `dt`: `Update` samples `now := time.Now()`, computes `dt := now.Sub(g.lastSimTick)`, then feeds the **same** `dt` to `accumulateInfection` and `accumulateProduction` (no per-system clocks).
+`g.lastSimTick` is the single source of `dt`: `Update` samples `now := time.Now()`, computes `dt := now.Sub(g.lastSimTick)`, then feeds the **same** `dt` to `accumulateInfection`, `accumulateProduction`, and `accumulateContainment` (no per-system clocks).
+
+### Containment accumulation
+
+`g.containmentPct` is the win-side counter; `infectionPct >= 100` triggers loss, `containmentPct >= 100` triggers win. It grows on an exponential curve so the blue team gets more efficient the longer it holds ground:
+
+- **Rate:** `rate(t) = containmentRatePerSec * (1 + containmentRateGrowthPerSec)^t`, where `containmentRatePerSec = 0.5` %/s (start rate) and `containmentRateGrowthPerSec = 0.01` (+1% of the previous rate each live-play second).
+- **Live-play clock:** `g.containmentElapsed` is a cumulative counter (seconds) advanced only when `!g.gameEnded()`. Freezes at the moment of loss/win so the rate displayed in the overlay matches the stopped state. Reset to `0` in `resetGameState`.
+- **Analytical integration:** `accumulateContainment(dt)` adds the exact integral `containmentRatePerSec * (k^t1 - k^t0) / ln(k)` over the `[containmentElapsed, containmentElapsed + dt]` interval (`k = 1 + containmentRateGrowthPerSec`), then advances the counter. Frame-rate independent; no per-frame approximation drift.
+- **Win condition:** checked by `checkGameOver` before loss check — if `containmentPct >= 100` while the run is still open, `triggerWin` latches. Under ideal play (no interruptions, no setbacks) victory lands ~110s from first dismiss.
+- **Overlay:** the containment row shows `"CONTAINMENT"` label → progress bar → percent → `+X.X%/s` with the **current** rate (`currentContainmentRate()` uses `containmentElapsed`, not wall time).
 
 ### Patch production (Security nodes)
 
 `accumulateProduction(dt)` walks `g.nodes`. For each `Security` node currently in `Normal`:
 
 1. `n.ProductionElapsed += dt`.
-2. While `n.ProductionElapsed >= patchProductionInterval` (15s): subtract one interval, `g.patchesLeft++` (loop preserves remainder + handles long stalls).
+2. While `n.ProductionElapsed >= patchProductionInterval` (15s): subtract one interval, `g.patchesLeft++`, spawn a `patchFloat{visIdx, spawnedAt: time.Now()}`, and `playSFX(sfxPickupPCM)` (loop preserves remainder + handles long stalls; multiple patches in one frame all animate).
 
 Non-Normal states (`Attack`, `Infected`, `Patched`) are skipped, so the timer **and its on-node pie indicator freeze** during attacks. Partial progress survives a `Defend` bounce. There is no global production tick — each Security node carries its own clock.
+
+**`+1` float-up animation (`drawPatchFloats`):** each `patchFloat` entry renders `"+1"` above its Security node for `patchFloatDuration = 1.2 s`. Vertical travel is an ease-out (`1 - (1-t)^2`) over `patchFloatRisePx = 70 px` starting `patchFloatMarginPx = 10 px` above the node circle; alpha fades linearly across the whole lifetime. Color matches the security palette (`patchFloatColor`, light teal) so the visual ties back to the node's teal ring. Drawn between `drawNodeMap` and `drawGameOverlay` so the float sits on top of nodes/labels but below the overlay strip. Expired entries are culled in the same pass via slice rewriting.
 
 ### Click-to-patch (action menu)
 
@@ -130,10 +144,10 @@ Non-Normal states (`Attack`, `Infected`, `Patched`) are skipped, so the timer **
 - Press inside `mapPanel.GetWidget().Rect` only; otherwise no-op.
 - **State machine** (`g.pendingPatchNode int`, `-1` when no menu):
   - **Menu open:** if the press hits a menu button, run `applyDefend` / `applyPatch`; clear `pendingPatchNode`. Otherwise (press anywhere else, including the map) close the menu without action.
-  - **Menu closed:** `attackNodeAt(x, y)` returns the first `Attack` node whose hit disc (`nodeRadius + hitSlackPx`) covers the press; if found, `pendingPatchNode = idx` to open the menu under it.
+  - **Menu closed:** `attackNodeAt(x, y)` returns the first `Attack` node whose hit disc (`nodeRadius + hitSlackPx`) covers the press; if found, `pendingPatchNode = idx` and `playSFX(sfxBlipPCM)` opens the menu under it.
 - **Actions** (both consume **1 patch** each, guarded by `canSpendPatchOn`):
-  - `applyDefend`: state → `Normal`, `AttackedAt = time.Time{}`. `ProductionElapsed` is **not** reset, so a defended security node keeps its patch progress.
-  - `applyPatch`: state → `Patched` (frozen, never produces patches again).
+  - `applyDefend`: state → `Normal`, `AttackedAt = time.Time{}`, `playSFX(sfxPowerPCM)`. `ProductionElapsed` is **not** reset, so a defended security node keeps its patch progress.
+  - `applyPatch`: state → `Patched`, `playSFX(sfxBoomPCM)` + `pushNews(pickPatchNews(idx))`. Frozen: never produces patches again.
 
 ## Patch action menu
 
@@ -148,10 +162,11 @@ Non-Normal states (`Attack`, `Infected`, `Patched`) are skipped, so the timer **
 
 - **Where:** drawn last in `Game.Draw` (after `ui.Draw` and `drawNodeMap`, before `drawPatchMenu`), so it sits **on top** of the map. Position: `mapPanel.GetWidget().Rect` shifted in by `overlayMarginPx = 15` on every side, height `overlayHeightPx = 60`. Background is semi-transparent dark (`#0a0b0e c8`) with a `overlayBorderW = 2` px border (centered on the stroke), so the topmost ring nodes still bleed through visually.
 - **State on `Game`:** `infectionPct float64` (see [Infection accumulation](#infection-accumulation)) and `patchesLeft int` (starts at `startingPatchCount`; mutated by `accumulateProduction` and the patch-menu actions).
-- **Layout:**
-  - Left, anchored start: `INFECTION` label (`overlayLabelFontPt = 23`) → progress bar (`infectionBarW × infectionBarH = 225×15`, dark track + red fill proportional to `infectionPct`) → `NN.N%` value (`overlayValueFontPt = 30`, one decimal place) → `+X.X%/s` rate label (label face, in the infection fill color).
-  - Right, anchored end: `xN` value → `"PATCHES"` label (rendered with the surrounding quotes).
-  - All text uses `text.AlignCenter` for the secondary axis to vertical-center against the strip's midline; `drawAlignedText` returns rendered width so left/right chains can advance/retreat without separate `Measure` calls.
+- **Layout:** two rows inside the overlay strip — `INFECTION` on top, `CONTAINMENT` below, and a right-edge `xN EXPLOITS` indicator centered across both rows.
+  - **Top row (infection, left):** `INFECTION` label (`overlayLabelFontPt = 23`) → progress bar (`infectionBarW × infectionBarH = 225×15`, dark track + red fill proportional to `infectionPct`) → `NN.N%` value (`overlayValueFontPt = 30`, one decimal place) → `+X.X%/s` rate label (label face, in the infection fill color).
+  - **Bottom row (containment, left):** `CONTAINMENT` label → bar (same size, teal fill proportional to `containmentPct`) → value → `+X.X%/s` rate label (current rate from `currentContainmentRate()`, teal).
+  - **Right edge:** `xN` value → `EXPLOITS` label (uppercase, no quotes), centered vertically on the overlay strip across both rows.
+  - All text uses `text.AlignCenter` for the secondary axis to vertical-center against its row midline; `drawAlignedText` returns rendered width so left/right chains can advance/retreat without separate `Measure` calls.
 - **Faces:** two cached on `Game` (`overlayLabelFace`, `overlayValueFace`) loaded via `loadFont`; missing faces silently skip the overlay (no crash).
 
 ## Security node indicator
@@ -165,7 +180,7 @@ In addition to the regular fill+stroke, each `Security` node draws:
 ## News feed widget
 
 - **Content:** `widget.Text` inside `widget.ScrollContainer` (`StretchContentWidth`).
-- **Initial text:** long placeholder block (`sampleNews` repeated) plus optional test lines from `pushTestNews`.
+- **Initial text:** `sampleNews` constant — a stack of slow-news-day headlines followed by the inciting email from Logos to `sam.boyman@philntropic.com` (order: oldest → newest; `pushNews` appends to the bottom and the feed auto-scrolls there, so the email is the freshest block on screen when the player first looks). `restart` re-seeds `newsText.Label = sampleNews`.
 - **Scroll wheel:** ebitenui does not hook the wheel on `ScrollContainer` by default; the game registers `ScrolledEvent` and updates **`feedScrollTarget`** only. **`ScrollTop`** is written from smoothed state in **`stepSmoothFeedScroll`** (same path as auto–scroll-to-bottom).
 
 ### Scroll math
@@ -258,29 +273,87 @@ of play. Lines are written without the leading bullet; `pushNews` prepends `"\n\
 - **Feed update:** `pushNews` appends the line to `newsText.Label`, calls `RequestRelayout`, and sets `feedScrollNeedBottom` so the next frame auto-scrolls to the bottom (deferred because PreferredSize during Layout has crashed ebitenui in the past).
 - **Style:** the writing keeps the example tone — two sentences, concrete consequence, slightly absurd-realistic. New nodes added to the catalog should follow the same shape so the feed reads consistently.
 
-There is no test-news ticker anymore; the feed is driven entirely by player actions on top of the initial `sampleNews` placeholder block.
+The feed is driven by player actions (patched-node consequence lines) and the endgame scripts on top of the initial `sampleNews` block.
 
-## Implemented vs CONCEPT
+## Title screen
 
-| CONCEPT | Code today |
-|---------|------------|
-| Status bar (time + game stats) | Phone strip (clock + signal + 5G + battery); game stats overlay (infection % + rate + patches) drawn on top of the map |
-| Interactive node map | Greybox topology starts as Phil&Tropic hub + 10 Project Panopticon ring nodes; static catalog of ~64 companies + ~80 edges resolves at startup; capturing an outer node migrates it to an inner ring and reveals up to `revealMaxNeighbors = 3` of its hidden static neighbours, eased into place; clicking an `Attack` node opens a `Defend` / `"Patch"` action menu |
-| Core loop (attack / patch / fail) | Partial: `Phil&Tropic` starts `Infected`; periodic `attackTick` promotes a frontier neighbor to `Attack`; `progressAttacks` flips `Attack → Infected` after the node's `Defense`, adding `infectionOneShotPct = 1%` plus a `0.1%/s` continuous drip per infected node; player spends patches via the action menu; Security nodes (`BootLoop`, `Fiasco Sys`) mint patches per-node when `Normal`. No win/fail check yet. |
-| News as consequence stream | Initial placeholder `sampleNews` + per-patch line drawn from `NodeDef.PatchNews` (random pick, 2-3 lines per node) emitted by `applyPatch` via `pushNews` |
+- **Asset:** `assets/cover 9x16.jpg` embedded with `//go:embed` (quoted pattern — filename has a space). Decoded once on first call to `loadCoverImage` into a cached `*ebiten.Image`.
+- **State flag:** `Game.showTitle bool`, lifted to `true` in `newGame` if the cover decoded cleanly, and again in `restart` so the debug restart feels like a fresh launch (including the music cue).
+- **Rendering:** `drawTitleScreen` scales the cover to fill the entire layout (`layoutWidth × layoutHeight = 900×1600` is 9:16, matches the source aspect). While `showTitle`, `Draw` short-circuits before the UI stack.
+- **Dismissal:** `handleTitleScreen` lands in `Update` before everything else. Any mouse-left just-pressed, any just-pressed touch, or any just-pressed key clears the flag and calls `dismissTitle`, which re-stamps `epoch`, `lastAttackAt`, `lastSimTick`, and `feedScrollLastSmooth` to the moment of dismiss (so time spent on the cover doesn't count against the first-attack schedule or the containment curve) and calls `startMusic`.
+
+## Audio
+
+Single `audio.Context` at `audioSampleRate = 48000` (matches the source MP3 and is the native WebAudio rate; no resampling in the browser).
+
+- **Music (`neon firewall.mp3`):** embedded via `//go:embed` (quoted pattern). `startMusic` decodes through `mp3.DecodeWithSampleRate`, wraps the stream in `audio.NewInfiniteLoop(stream, stream.Length())` (loops cleanly if the run outlasts the track), and plays via `Context.NewPlayer`. Stored in `g.musicPlayer`. `stopMusic` closes and nils the player; safe on no-op paths. Music starts at `dismissTitle`, stops at `triggerWin` / `triggerLoss` (so the endgame theatrical plays in silence), and again at `restart`. Errors are logged and swallowed — the game never fails a run over audio.
+- **SFX (`assets/sfx/*.wav`):** four one-shots embedded and decoded once into raw PCM buffers (`sfxBlipPCM`, `sfxBoomPCM`, `sfxPowerPCM`, `sfxPickupPCM`) on first `ensureAudioCtx()`. `playSFX(pcm)` spawns an ephemeral `Context.NewPlayerFromBytes` per hit so overlapping plays don't clip; the GC collects players after they finish.
+
+| Event | Sound | Hook site |
+|-------|-------|-----------|
+| Click on an `Attack` node (menu opens) | `blip` | `handlePatchClick` in `nodes.go` |
+| `"Patch"` action applied | `boom` | `applyPatch` in `patch_menu.go` |
+| `Defend` action applied | `power` | `applyDefend` in `patch_menu.go` |
+| Security node mints a patch | `pickup` | `accumulateProduction` in `nodes.go` |
+| Battery segment drains during loss | `boom` (reused) | `advanceLossSequence` in `gameover.go` |
+
+Placeholder silent WAVs (46 bytes each) live in `assets/sfx/` so the build never breaks; replace with bfxr-exported files in the same names without touching the code.
+
+## Endgame
+
+`Game.end *endgame` is the session latch. `nil` during play; non-nil after the first `triggerLoss` / `triggerWin`. Once set, the latch is never cleared inside the current run — `resetGameState` nils it. Both triggers stop music and close any open patch menu (`pendingPatchNode = -1`).
+
+- **Loss:** `checkGameOver` latches when `infectionPct >= 100`. Picks one line from `lossMessages` up front so the text is stable across frames.
+- **Win:** latches when `containmentPct >= 100`. Picks from `winMessages` the same way. Debug menu's `Win` button is a shortcut to the same path.
+
+`gameEnded()` / `gameLost()` / `gameWon()` are read by every sim system as a freeze gate; only `easeNodes`, the news scroll, the wall clock, and the debug menu keep running after a latch.
+
+### Win sequence (`advanceWinSequence`)
+
+1. `+0s` — latch, stop music.
+2. `+winVoiceoverDelay = 3s` — push the picked `winMessages` line as a bullet into the feed.
+3. `+winVoiceoverDelay + winTerminatorGap = 5s` — push the `"Victory"` terminator as its own bullet.
+
+No on-screen curtain; the feed carries the whole closure.
+
+### Loss sequence (`advanceLossSequence`)
+
+A phone-shutdown theatrical. Timings from latch (t=0):
+
+1. `+0s` — latch, stop music, freeze the sim.
+2. `+lossEmailDelay = 2s` — push an email from Logos to `sam.boyman@philntropic.com` into the feed via `pushNews(formatLogosLossEmail(line))`. Body is the picked `lossMessages` line; header reads `[NEW MESSAGE]  FROM: Logos / TO: sam.boyman@philntropic.com / SUBJ: all done` and the block is signed `— Logos`, matching the opening email in `sampleNews`.
+3. `+lossEmailDelay + lossBatteryDelay = 6s` — drain starts (`drainStarted = true`, `drainStartAt = time.Now()`).
+4. `drainStartAt + batterySegmentInterval * k` for k = 1..`batterySegments` (1.2s per step by default) — `batterySegs` decrements, `refreshBatteryIcon` rebuilds the glyph (`g.batteryIcon.Image = makeBatteryIcon(n)`) and `playSFX(sfxBoomPCM)` fires per step. The loop tolerates frame stalls by computing the target segment count from elapsed time each frame and catching up.
+5. Last boom + `lossScreenOffDelay = 0.8s` — `e.screenOff = true`. Draw short-circuits to `drawScreenOff`, painting a solid-black curtain over the whole layout and a centered Restart button (`screenOffBtnW × screenOffBtnH = 400×120`). `handleScreenOff` (called in `Update` between `checkGameOver` and the rest of the sim) routes any just-pressed pointer inside the button rect back through `g.restart()`.
+
+Battery state is fully part of `Game` (`batteryIcon *widget.Graphic`, `batterySegs int`) and reset to `batterySegments = 4` + a glyph rebuild in `resetGameState`, so a restart brings the status bar back to full.
+
+## Debug menu
+
+`debug_menu.go` draws three bottom-of-screen buttons (`Win`, `Restart`, `Lose`) with `debugBGWin` / `debugBGRestart` / `debugBGLose` fills.
+
+- **Clicks** routed in `handleDebugMenu` before other input consumers. `Win` / `Lose` call `triggerWin` / `triggerLoss` and then no-op while the run is latched. `Restart` stays live after an endgame and calls `g.restart()`, which resets the game state, re-seeds the news feed to `sampleNews`, stops music, and brings the title screen back (so the next dismiss starts the music from zero).
+- **Layout:** `debugButtonRects()` returns three rects; `Restart` is centered between `Win` (left) and `Lose` (right) so the three share a single horizontal strip.
 
 ## File map
 
 | Path | Role |
 |------|------|
-| `main.go` | Game struct, UI tree, bands, feed scroll, `pushNews`, sim tick (`lastSimTick` → `accumulateInfection` + `accumulateProduction` + `easeNodes`) |
-| `titlebar.go` | Phone-style title bar (clock + signal + 5G + battery icons via `vector`) |
+| `main.go` | Game struct, UI tree, bands, feed scroll, `pushNews`, `resetGameState`/`restart`, sim tick (`lastSimTick` → `accumulateInfection` + `accumulateProduction` + `accumulateContainment` + `easeNodes`), `Update`/`Draw`/`Layout` wiring |
+| `titlebar.go` | Phone-style title bar (clock + signal + 5G + battery icons via `vector`); `populatePhoneTitleBar` returns both the clock `Text` and the battery `Graphic` so the loss sequence can animate the segments |
+| `title.go` | Cover splash screen: embedded `assets/cover 9x16.jpg`, `handleTitleScreen`/`dismissTitle`/`drawTitleScreen`; dismiss re-stamps sim clocks and starts music |
+| `audio.go` | `audio.Context` singleton, music player lifecycle (`startMusic`/`stopMusic`, infinite-loop MP3), SFX PCM decode + `playSFX` one-shots |
 | `network.go` | Static catalog (`staticCatalog` with `NodeDef.PatchNews`) + edge spec (`staticEdgeSpec`) + `Network`/`buildNetwork`; resolved once at startup, immutable |
-| `nodes.go` | Visible node map: state/defense/security/production, dynamic visibility (`initVisibleNetwork`, `addVisibleNode`, `revealNeighbors`), ring layout (`relayoutTargets`, `easeNodes`), draw, attack scheduling, infection/production accumulators, click routing |
-| `overlay.go` | Game-state overlay (infection % + rate, patches) drawn on top of the map |
-| `patch_menu.go` | `Defend` / `"Patch"` action menu for attacked nodes; `applyPatch` emits a `pickPatchNews` line into the feed |
+| `nodes.go` | Visible node map: state/defense/security/production, dynamic visibility (`initVisibleNetwork`, `addVisibleNode`, `revealNeighbors` w/ security bias), ring layout (`relayoutTargets`, `easeNodes`), draw (nodes + edges + hidden-edge stubs + `+1` floats), attack scheduling, infection/containment/production accumulators, click routing |
+| `overlay.go` | Game-state overlay (two rows: infection + containment with bars and rate labels; right-edge `EXPLOITS` counter) drawn on top of the map |
+| `patch_menu.go` | `Defend` / `"Patch"` action menu for attacked nodes; `applyPatch`/`applyDefend` consume patches, play their SFX, `applyPatch` emits a `pickPatchNews` line into the feed |
+| `gameover.go` | `endgame` latch + message pools, `triggerWin`/`triggerLoss`, `advanceWinSequence`/`advanceLossSequence` (email + battery drain + screen off + Restart overlay) |
+| `debug_menu.go` | Bottom-of-screen `Win` / `Restart` / `Lose` buttons; `Restart` stays live after an endgame to get out of the screen-off state fast |
 | `feed_drag.go` | Touch / left-mouse drag-to-scroll for the news feed |
 | `wheel_native.go` | `feedWheelContentPixelsPerUnit = 45.0` (build tag `!js`, layout-pixel-scaled) |
 | `wheel_js.go` | `feedWheelContentPixelsPerUnit = 2.5` (build tag `js`, layout-pixel-scaled) |
+| `assets/cover 9x16.jpg` | Title screen cover, embedded |
+| `assets/neon firewall.mp3` | In-game loop track, embedded |
+| `assets/sfx/{blip,boom,power,pickup}.wav` | SFX one-shots, embedded |
 | `wasm/index.html` | WASM shell copied to `dist/wasm/` |
 | `Makefile` | `build`, `wasm`, `serve-wasm`, `clean` |

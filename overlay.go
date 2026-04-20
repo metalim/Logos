@@ -77,12 +77,22 @@ func (g *Game) drawGameOverlay(screen *ebiten.Image) {
 	g.drawProgressRow(screen, float64(x), barX, cyBot,
 		"CONTAINMENT", g.containmentPct, g.currentContainmentRate(), containmentTrack, containmentFill)
 
+	// Align "xN" (overlayValueFace, bigger) and "EXPLOITS" (overlayLabelFace, smaller)
+	// by their glyph baselines. AlignCenter at a shared cy would put their line-box
+	// centers together, but because the two faces differ in size their baselines end
+	// up ~2-3 px apart and the label appears to float. Keep the value centered in the
+	// strip (its baseline is the visual anchor), then pick the label's cy so its
+	// baseline matches the value's baseline.
+	valM := g.overlayValueFace.Metrics()
+	lblM := g.overlayLabelFace.Metrics()
+	valBaseline := cy + (valM.HAscent-valM.HDescent)/2
+	lblCy := valBaseline - (lblM.HAscent-lblM.HDescent)/2
 	rightX := float64(x+w) - overlayInnerPadPx
 	rightX -= drawAlignedText(screen, g.overlayValueFace, fmt.Sprintf("x%d", g.patchesLeft),
 		rightX, cy, text.AlignEnd, text.AlignCenter, overlayValue)
 	rightX -= overlayItemGapPx
 	drawAlignedText(screen, g.overlayLabelFace, "EXPLOITS",
-		rightX, cy, text.AlignEnd, text.AlignCenter, overlayLabel)
+		rightX, lblCy, text.AlignEnd, text.AlignCenter, overlayLabel)
 }
 
 // drawProgressRow lays out one labelled progress bar row inside the overlay strip:

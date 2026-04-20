@@ -9,15 +9,17 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
-// Debug menu: three small rectangular buttons pinned to the bottom edge of the map
-// panel. Win on the left (green), Restart in the middle (neutral), Lose on the right
-// (red). Used to preview the staged endgame flow and to start over without quitting
-// the binary; tinted to make each affordance obvious at a glance.
+// Debug menu: three small rectangular buttons clustered in the bottom-right corner of
+// the full game layout (not the map panel — the map only covers the upper phone area,
+// so anchoring there would put the buttons over the news feed). Order (left → right
+// within the cluster): Win (green), Restart (neutral), Lose (red). Used to preview
+// the staged endgame flow and to start over without quitting the binary.
 const (
 	debugBtnW    = 90
 	debugBtnH    = 44
-	debugBtnPadX = 12 // distance from map left/right edges
-	debugBtnPadY = 12 // distance from map bottom edge
+	debugBtnPadX = 12 // distance from layout right edge
+	debugBtnPadY = 12 // distance from layout bottom edge
+	debugBtnGap  = 8  // horizontal gap between adjacent debug buttons
 	debugStrokeW = 2
 )
 
@@ -30,22 +32,15 @@ var (
 	debugLabelFG   = color.NRGBA{R: 0xf0, G: 0xf2, B: 0xf6, A: 0xff}
 )
 
-// debugButtonRects returns Win/Restart/Lose button rects in screen coords, anchored to
-// the bottom-left, bottom-center, and bottom-right of the map panel. ok=false if the
-// panel hasn't been laid out yet (zero rect).
+// debugButtonRects returns Win/Restart/Lose button rects in layout coords, clustered
+// in the bottom-right corner of the full game layout (Win left, Restart middle, Lose
+// right). ok is always true — the coords are constant, no layout dependency.
 func (g *Game) debugButtonRects() (win, restart, lose image.Rectangle, ok bool) {
-	if g.mapPanel == nil {
-		return image.Rectangle{}, image.Rectangle{}, image.Rectangle{}, false
-	}
-	r := g.mapPanel.GetWidget().Rect
-	if r.Empty() {
-		return image.Rectangle{}, image.Rectangle{}, image.Rectangle{}, false
-	}
-	bottom := r.Max.Y - debugBtnPadY
+	bottom := layoutHeight - debugBtnPadY
 	top := bottom - debugBtnH
-	winLeft := r.Min.X + debugBtnPadX
-	loseLeft := r.Max.X - debugBtnPadX - debugBtnW
-	restartLeft := (r.Min.X + r.Max.X - debugBtnW) / 2
+	loseLeft := layoutWidth - debugBtnPadX - debugBtnW
+	restartLeft := loseLeft - debugBtnGap - debugBtnW
+	winLeft := restartLeft - debugBtnGap - debugBtnW
 	win = image.Rect(winLeft, top, winLeft+debugBtnW, bottom)
 	restart = image.Rect(restartLeft, top, restartLeft+debugBtnW, bottom)
 	lose = image.Rect(loseLeft, top, loseLeft+debugBtnW, bottom)

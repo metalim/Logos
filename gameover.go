@@ -257,6 +257,6 @@ func (g *Game) drawScreenOff(screen *ebiten.Image) {
 	}
 
 	if g.overlayValueFace != nil {
-		drawMenuButton(screen, screenOffRestartRect(), "Restart", g.overlayValueFace)
+		drawMenuButton(screen, screenOffRestartRect(), "Restart", g.overlayValueFace, true, false)
 	}
 }

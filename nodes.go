@@ -600,12 +600,13 @@ func (g *Game) nodeScreenPos(i int) (cx, cy float32, ok bool) {
 
 // handlePatchClick routes just-pressed pointer events (mouse or touch) for the patch menu:
 //
-//  1. If a menu is already open, an in-button click triggers the action (Defend or "Patch")
-//     and any other click cancels the menu (and may open a new one if it lands on another
-//     Attack node).
-//  2. Otherwise a click on an Attack node inside the map area opens the menu for that node.
-//
-// No menu opens (and no action runs) while the player has zero patches.
+//  1. If a menu is already open and the player has patches, an in-button click triggers the
+//     action (Defend or "Patch"); any other click cancels the menu (and may open a new one
+//     if it lands on another Attack node).
+//  2. If a menu is already open but patches == 0, the buttons are inert (rendered dimmed by
+//     drawPatchMenu) and any click just closes the menu.
+//  3. Otherwise a click on an Attack node inside the map area opens the menu for that node —
+//     regardless of patches, so the player can still inspect the situation with zero stock.
 func (g *Game) handlePatchClick() {
 	if g.mapPanel == nil || g.gameEnded() {
 		return
@@ -623,23 +624,25 @@ func (g *Game) handlePatchClick() {
 	}
 
 	if g.pendingPatchNode >= 0 {
-		if defendR, patchR, ok := g.patchMenuLayout(g.pendingPatchNode); ok {
-			pt := image.Pt(x, y)
-			switch {
-			case pt.In(defendR):
-				g.applyDefend(g.pendingPatchNode)
-				g.pendingPatchNode = -1
-				return
-			case pt.In(patchR):
-				g.applyPatch(g.pendingPatchNode)
-				g.pendingPatchNode = -1
-				return
+		if g.patchesLeft > 0 {
+			if defendR, patchR, ok := g.patchMenuLayout(g.pendingPatchNode); ok {
+				pt := image.Pt(x, y)
+				switch {
+				case pt.In(defendR):
+					g.applyDefend(g.pendingPatchNode)
+					g.pendingPatchNode = -1
+					return
+				case pt.In(patchR):
+					g.applyPatch(g.pendingPatchNode)
+					g.pendingPatchNode = -1
+					return
+				}
 			}
 		}
 		g.pendingPatchNode = -1
 	}
 
-	if g.patchesLeft <= 0 || !image.Pt(x, y).In(g.mapPanel.GetWidget().Rect) {
+	if !image.Pt(x, y).In(g.mapPanel.GetWidget().Rect) {
 		return
 	}
 	if idx := g.attackNodeAt(x, y); idx >= 0 {

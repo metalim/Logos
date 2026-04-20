@@ -25,6 +25,16 @@ var (
 	menuBG      = color.NRGBA{R: 0x12, G: 0x14, B: 0x18, A: 0xee}
 	menuBorder  = color.NRGBA{R: 0x9a, G: 0x9c, B: 0xa2, A: 0xff}
 	menuLabelFG = color.NRGBA{R: 0xe8, G: 0xea, B: 0xf0, A: 0xff}
+	// Danger palette: used on the "Patch" label to flag the destructive action (locks the
+	// node out of production forever). Border stays neutral so both buttons still read as
+	// a set; only the text color carries the warning.
+	menuDangerFG = color.NRGBA{R: 0xff, G: 0x5a, B: 0x55, A: 0xff}
+	// Disabled palette: same hues, lower alpha. Used when patchesLeft == 0 so the menu
+	// reads as "inspectable but not actionable" instead of refusing to open.
+	menuBGDisabled       = color.NRGBA{R: 0x12, G: 0x14, B: 0x18, A: 0xcc}
+	menuBorderDisabled   = color.NRGBA{R: 0x9a, G: 0x9c, B: 0xa2, A: 0x55}
+	menuLabelFGDisabled  = color.NRGBA{R: 0xe8, G: 0xea, B: 0xf0, A: 0x55}
+	menuDangerFGDisabled = color.NRGBA{R: 0xff, G: 0x5a, B: 0x55, A: 0x55}
 )
 
 // patchMenuLayout returns the screen-space rects for the Defend (left) and "Patch" (right)
@@ -45,7 +55,8 @@ func (g *Game) patchMenuLayout(nodeIdx int) (defend, patch image.Rectangle, ok b
 }
 
 // drawPatchMenu draws the action menu for g.pendingPatchNode if one is set. Drawn after
-// the overlay so the buttons sit on top of every other map element.
+// the overlay so the buttons sit on top of every other map element. Buttons are rendered
+// dimmed when patchesLeft == 0 — handlePatchClick keeps them inert in that case.
 func (g *Game) drawPatchMenu(screen *ebiten.Image) {
 	if g.pendingPatchNode < 0 || g.overlayValueFace == nil {
 		return
@@ -54,21 +65,32 @@ func (g *Game) drawPatchMenu(screen *ebiten.Image) {
 	if !ok {
 		return
 	}
-	drawMenuButton(screen, defend, "Defend", g.overlayValueFace)
-	drawMenuButton(screen, patch, `"Patch"`, g.overlayValueFace)
+	enabled := g.patchesLeft > 0
+	drawMenuButton(screen, defend, "Defend", g.overlayValueFace, enabled, false)
+	drawMenuButton(screen, patch, `"Patch"`, g.overlayValueFace, enabled, true)
 }
 
-func drawMenuButton(dst *ebiten.Image, r image.Rectangle, label string, face text.Face) {
+func drawMenuButton(dst *ebiten.Image, r image.Rectangle, label string, face text.Face, enabled, danger bool) {
+	bg, border, fg := menuBG, menuBorder, menuLabelFG
+	if danger {
+		fg = menuDangerFG
+	}
+	if !enabled {
+		bg, border, fg = menuBGDisabled, menuBorderDisabled, menuLabelFGDisabled
+		if danger {
+			fg = menuDangerFGDisabled
+		}
+	}
 	x := float32(r.Min.X)
 	y := float32(r.Min.Y)
 	w := float32(r.Dx())
 	h := float32(r.Dy())
-	vector.FillRect(dst, x, y, w, h, menuBG, false)
+	vector.FillRect(dst, x, y, w, h, bg, false)
 	const sw = menuStrokeW
-	vector.StrokeRect(dst, x+sw/2.0, y+sw/2.0, w-sw, h-sw, sw, menuBorder, false)
+	vector.StrokeRect(dst, x+sw/2.0, y+sw/2.0, w-sw, h-sw, sw, border, false)
 	cx := float64(x) + float64(w)/2
 	cy := float64(y) + float64(h)/2
-	drawAlignedText(dst, face, label, cx, cy, text.AlignCenter, text.AlignCenter, menuLabelFG)
+	drawAlignedText(dst, face, label, cx, cy, text.AlignCenter, text.AlignCenter, fg)
 }
 
 // applyPatch is the "Patch" action: lock the node down (NodeStatePatched) so it cannot be

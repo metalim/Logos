@@ -159,6 +159,11 @@ type Game struct {
 	// every sim system and the attack-pulse animation. Holds the pre-picked voiceover
 	// line + terminator so checkGameOver doesn't reroll the text mid-stream.
 	end *endgame
+
+	// showTitle blocks the game view and the sim until the player taps/clicks/presses
+	// any key. Set true at startup (after the cover decodes cleanly); stays false for
+	// the rest of the session — debug Restart does not re-show the cover.
+	showTitle bool
 }
 
 func loadFont(size float64) (text.Face, error) {
@@ -286,6 +291,9 @@ func newGame() (*Game, error) {
 		g.overlayValueFace = f
 	}
 	g.resetGameState()
+	if loadCoverImage() != nil {
+		g.showTitle = true
+	}
 	wireFeedScrollWheel(g)
 	return g, nil
 }
@@ -312,7 +320,8 @@ func (g *Game) resetGameState() {
 
 // restart is the debug "fresh run" handler: resets gameplay state and the news feed
 // back to the initial sample block, then re-arms the auto-scroll-to-bottom so the
-// freshly-seeded feed lines up with where it was at startup.
+// freshly-seeded feed lines up with where it was at startup. Also brings the title
+// cover back so a full restart feels like a fresh launch (including the music cue).
 func (g *Game) restart() {
 	g.resetGameState()
 	if g.newsText != nil {
@@ -324,6 +333,9 @@ func (g *Game) restart() {
 	g.feedScrollTarget = 1
 	g.feedScrollPx = -1
 	g.feedScrollNeedBottom = true
+	if loadCoverImage() != nil {
+		g.showTitle = true
+	}
 }
 
 func (g *Game) applyVerticalBands(outsideW, outsideH int) {
@@ -438,6 +450,9 @@ func (g *Game) pushNews(line string) {
 }
 
 func (g *Game) Update() error {
+	if g.handleTitleScreen() {
+		return nil
+	}
 	g.checkGameOver()
 
 	now := time.Now()
@@ -473,6 +488,10 @@ func (g *Game) Update() error {
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
+	if g.showTitle {
+		g.drawTitleScreen(screen)
+		return
+	}
 	g.ui.Draw(screen)
 	g.drawNodeMap(screen)
 	g.drawPatchFloats(screen)

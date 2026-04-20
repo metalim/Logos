@@ -153,7 +153,7 @@ func (g *Game) advanceWinSequence() {
 //  1. Short freeze after the latch.
 //  2. Email from Logos to Sam (body = picked loss voiceover line).
 //  3. Another pause.
-//  4. Battery segments tick down one by one with a boom each.
+//  4. Battery segments tick down one by one with a drain tick each.
 //  5. Short beat, then the phone screen goes black; drawScreenOff draws the Restart
 //     button that resets the run.
 func (g *Game) advanceLossSequence() {
@@ -162,6 +162,7 @@ func (g *Game) advanceLossSequence() {
 
 	if !e.emailPushed && elapsed >= lossEmailDelay {
 		g.pushNews(formatLogosLossEmail(e.line))
+		playSFX(sfxEmailPCM)
 		e.emailPushed = true
 	}
 	if e.emailPushed && !e.drainStarted && elapsed >= lossEmailDelay+lossBatteryDelay {
@@ -180,7 +181,7 @@ func (g *Game) advanceLossSequence() {
 	for g.batterySegs > want {
 		g.batterySegs--
 		g.refreshBatteryIcon()
-		playSFX(sfxBoomPCM)
+		playSFX(sfxDrainPCM)
 	}
 
 	if g.batterySegs == 0 && !e.screenOff {

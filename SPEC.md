@@ -289,7 +289,7 @@ The feed is driven by player actions (patched-node consequence lines) and the en
 Single `audio.Context` at `audioSampleRate = 48000` (matches the source MP3 and is the native WebAudio rate; no resampling in the browser).
 
 - **Music (`neon firewall.mp3`):** embedded via `//go:embed` (quoted pattern). `startMusic` decodes through `mp3.DecodeWithSampleRate`, wraps the stream in `audio.NewInfiniteLoop(stream, stream.Length())` (loops cleanly if the run outlasts the track), and plays via `Context.NewPlayer`. Stored in `g.musicPlayer`. `stopMusic` closes and nils the player; safe on no-op paths. Music starts at `dismissTitle`, stops at `triggerWin` / `triggerLoss` (so the endgame theatrical plays in silence), and again at `restart`. Errors are logged and swallowed — the game never fails a run over audio.
-- **SFX (`assets/sfx/*.wav`):** four one-shots embedded and decoded once into raw PCM buffers (`sfxBlipPCM`, `sfxBoomPCM`, `sfxPowerPCM`, `sfxPickupPCM`) on first `ensureAudioCtx()`. `playSFX(pcm)` spawns an ephemeral `Context.NewPlayerFromBytes` per hit so overlapping plays don't clip; the GC collects players after they finish.
+- **SFX (`assets/sfx/*.wav`):** six one-shots embedded and decoded once into raw PCM buffers (`sfxBlipPCM`, `sfxBoomPCM`, `sfxPowerPCM`, `sfxPickupPCM`, `sfxDrainPCM`, `sfxEmailPCM`) on first `ensureAudioCtx()`. `playSFX(pcm)` spawns an ephemeral `Context.NewPlayerFromBytes` per hit so overlapping plays don't clip; the GC collects players after they finish.
 
 | Event | Sound | Hook site |
 |-------|-------|-----------|
@@ -297,9 +297,10 @@ Single `audio.Context` at `audioSampleRate = 48000` (matches the source MP3 and 
 | `"Patch"` action applied | `boom` | `applyPatch` in `patch_menu.go` |
 | `Defend` action applied | `power` | `applyDefend` in `patch_menu.go` |
 | Security node mints a patch | `pickup` | `accumulateProduction` in `nodes.go` |
-| Battery segment drains during loss | `boom` (reused) | `advanceLossSequence` in `gameover.go` |
+| Logos's closing email is pushed to the feed (loss) | `email` | `advanceLossSequence` in `gameover.go` |
+| Battery segment drains during loss | `drain` | `advanceLossSequence` in `gameover.go` |
 
-Placeholder silent WAVs (46 bytes each) live in `assets/sfx/` so the build never breaks; replace with bfxr-exported files in the same names without touching the code.
+Placeholder silent WAVs live in `assets/sfx/` so the build never breaks; replace with bfxr-exported files in the same names without touching the code.
 
 ## Endgame
 
@@ -323,10 +324,10 @@ No on-screen curtain; the feed carries the whole closure.
 A phone-shutdown theatrical. Timings from latch (t=0):
 
 1. `+0s` — latch, stop music, freeze the sim.
-2. `+lossEmailDelay = 2s` — push an email from Logos to `sam.boyman@philntropic.com` into the feed via `pushNews(formatLogosLossEmail(line))`. Body is the picked `lossMessages` line; header reads `[NEW MESSAGE]  FROM: Logos / TO: sam.boyman@philntropic.com / SUBJ: all done` and the block is signed `— Logos`, matching the opening email in `sampleNews`.
+2. `+lossEmailDelay = 2s` — push an email from Logos to `sam.boyman@philntropic.com` into the feed via `pushNews(formatLogosLossEmail(line))` and `playSFX(sfxEmailPCM)`. Body is the picked `lossMessages` line (short, personal farewell note addressed to Sam); header reads `[NEW MESSAGE]  FROM: Logos / TO: sam.boyman@philntropic.com / SUBJ: all done` and the block is signed `— Logos`, matching the opening email in `sampleNews`.
 3. `+lossEmailDelay + lossBatteryDelay = 6s` — drain starts (`drainStarted = true`, `drainStartAt = time.Now()`). The email gets the reading pause before the phone begins its shutdown.
-4. `drainStartAt + batterySegmentInterval * k` for k = 1..`batterySegments` (`batterySegmentInterval = 1.2s`) — `batterySegs` decrements, `refreshBatteryIcon` rebuilds the glyph (`g.batteryIcon.Image = makeBatteryIcon(n)`) and `playSFX(sfxBoomPCM)` fires per step. The loop tolerates frame stalls by computing the target segment count from elapsed time each frame and catching up.
-5. Last boom + `lossScreenOffDelay = 0.8s` — `e.screenOff = true`. Draw short-circuits to `drawScreenOff`, painting a solid-black curtain over the whole layout, blitting the **empty battery glyph** at its original titlebar slot (right-aligned with `titleBarPadX` inset, vertically centered in the top band) for visual continuity — the phone is off but the drained battery is the last thing you see — and a centered Restart button (`screenOffBtnW × screenOffBtnH = 400×120`). `handleScreenOff` (called in `Update` between `checkGameOver` and the rest of the sim) routes any just-pressed pointer inside the button rect back through `g.restart()`.
+4. `drainStartAt + batterySegmentInterval * k` for k = 1..`batterySegments` (`batterySegmentInterval = 1.2s`) — `batterySegs` decrements, `refreshBatteryIcon` rebuilds the glyph (`g.batteryIcon.Image = makeBatteryIcon(n)`) and `playSFX(sfxDrainPCM)` fires per step. The loop tolerates frame stalls by computing the target segment count from elapsed time each frame and catching up.
+5. Last drain tick + `lossScreenOffDelay = 0.8s` — `e.screenOff = true`. Draw short-circuits to `drawScreenOff`, painting a solid-black curtain over the whole layout, blitting the **empty battery glyph** at its original titlebar slot (right-aligned with `titleBarPadX` inset, vertically centered in the top band) for visual continuity — the phone is off but the drained battery is the last thing you see — and a centered Restart button (`screenOffBtnW × screenOffBtnH = 400×120`). `handleScreenOff` (called in `Update` between `checkGameOver` and the rest of the sim) routes any just-pressed pointer inside the button rect back through `g.restart()`.
 
 Battery state is fully part of `Game` (`batteryIcon *widget.Graphic`, `batterySegs int`) and reset to `batterySegments = 4` + a glyph rebuild in `resetGameState`, so a restart brings the status bar back to full.
 
@@ -356,6 +357,6 @@ Battery state is fully part of `Game` (`batteryIcon *widget.Graphic`, `batterySe
 | `wheel_js.go` | `feedWheelContentPixelsPerUnit = 2.5` (build tag `js`, layout-pixel-scaled) |
 | `assets/cover 9x16.jpg` | Title screen cover, embedded |
 | `assets/neon firewall.mp3` | In-game loop track, embedded |
-| `assets/sfx/{blip,boom,power,pickup}.wav` | SFX one-shots, embedded |
+| `assets/sfx/{blip,boom,power,pickup,drain,email}.wav` | SFX one-shots, embedded |
 | `wasm/index.html` | WASM shell copied to `dist/wasm/`; includes a streaming loader (progress bar + MB readout). Uses `Content-Length` when the server exposes it; otherwise falls back to `WASM_EXPECTED_BYTES = 26 MiB` and caps the displayed fraction at `0.99` until the stream ends so the bar still advances on gzip/CDN setups that strip the header. Status text marks estimated mode with `~` (`loading X.X / ~Y.Y MB`). |
 | `Makefile` | `build`, `wasm`, `serve-wasm`, `clean` |

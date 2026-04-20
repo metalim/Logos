@@ -31,6 +31,12 @@ var sfxPowerBytes []byte
 //go:embed assets/sfx/pickup.wav
 var sfxPickupBytes []byte
 
+//go:embed assets/sfx/drain.wav
+var sfxDrainBytes []byte
+
+//go:embed assets/sfx/email.wav
+var sfxEmailBytes []byte
+
 // audioSampleRate is the single rate the whole game mixes at. 48 kHz matches the
 // source MP3 and is the preferred WebAudio rate, so the browser mixer doesn't have
 // to resample.
@@ -48,6 +54,8 @@ var (
 	sfxBoomPCM   []byte
 	sfxPowerPCM  []byte
 	sfxPickupPCM []byte
+	sfxDrainPCM  []byte
+	sfxEmailPCM  []byte
 )
 
 func ensureAudioCtx() *audio.Context {
@@ -59,6 +67,8 @@ func ensureAudioCtx() *audio.Context {
 	sfxBoomPCM = decodeWAV(sfxBoomBytes)
 	sfxPowerPCM = decodeWAV(sfxPowerBytes)
 	sfxPickupPCM = decodeWAV(sfxPickupBytes)
+	sfxDrainPCM = decodeWAV(sfxDrainBytes)
+	sfxEmailPCM = decodeWAV(sfxEmailBytes)
 	return audioCtx
 }
 

@@ -75,6 +75,7 @@ func (g *Game) triggerLoss() {
 		final: "Game over",
 	}
 	g.pendingPatchNode = -1
+	g.stopMusic()
 }
 
 // triggerWin is the debug-only counterpart to triggerLoss. There is no in-game victory
@@ -90,6 +91,7 @@ func (g *Game) triggerWin() {
 		final: "Victory",
 	}
 	g.pendingPatchNode = -1
+	g.stopMusic()
 }
 
 // checkGameOver advances the endgame state machine each frame:

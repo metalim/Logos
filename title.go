@@ -59,6 +59,7 @@ func (g *Game) dismissTitle() {
 	g.lastAttackAt = now
 	g.lastSimTick = now
 	g.feedScrollLastSmooth = now
+	g.startMusic()
 }
 
 // drawTitleScreen paints the cover scaled to fill the entire layout. The asset is

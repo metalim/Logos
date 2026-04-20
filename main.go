@@ -11,6 +11,7 @@ import (
 	eimage "github.com/ebitenui/ebitenui/image"
 	"github.com/ebitenui/ebitenui/widget"
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/audio"
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
 	"golang.org/x/image/font/gofont/gomono"
 )
@@ -161,9 +162,13 @@ type Game struct {
 	end *endgame
 
 	// showTitle blocks the game view and the sim until the player taps/clicks/presses
-	// any key. Set true at startup (after the cover decodes cleanly); stays false for
-	// the rest of the session — debug Restart does not re-show the cover.
+	// any key. Set true at startup (after the cover decodes cleanly); Restart also
+	// brings it back so the session feels like a fresh launch (music cue included).
 	showTitle bool
+
+	// musicPlayer holds the looping in-game track. Non-nil between dismissTitle and
+	// the next endgame transition (or the next restart). Closed + niled on stop.
+	musicPlayer *audio.Player
 }
 
 func loadFont(size float64) (text.Face, error) {
@@ -333,6 +338,7 @@ func (g *Game) restart() {
 	g.feedScrollTarget = 1
 	g.feedScrollPx = -1
 	g.feedScrollNeedBottom = true
+	g.stopMusic()
 	if loadCoverImage() != nil {
 		g.showTitle = true
 	}

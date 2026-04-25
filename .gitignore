@@ -1,3 +1,5 @@
 dist/
 ref/
-Logos
+# Anchored to repo root so the rule doesn't shadow `cmd/logos/` on macOS,
+# where Git matches paths case-insensitively by default.
+/Logos

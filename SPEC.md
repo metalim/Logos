@@ -6,6 +6,7 @@ Narrative design, lore, and target gameplay loop live in [CONCEPT.md](CONCEPT.md
 
 - **Go**, [Ebiten v2](https://ebitengine.org/), [ebitenui](https://github.com/ebitenui/ebitenui)
 - **Font:** `golang.org/x/image/font/gofont/gomono` via `ebiten/v2/text/v2`
+- **Layout:** `cmd/logos/main.go` (entry point, `package main`) + `internal/game/` (everything else, `package game`); assets embedded from `internal/game/assets/`. See File map below.
 - **Desktop build:** `CGO_ENABLED=0` (see [Makefile](Makefile))
 - **WASM:** `make wasm` → `dist/wasm/` (`game.wasm`, `wasm_exec.js`, `index.html`, plus `logos.zip` bundling all three for itch.io upload)
 
@@ -391,26 +392,30 @@ When enabled, `debug_menu.go` draws four buttons (`Credits`, `Win`, `Restart`, `
 
 ## File map
 
+All game source lives in `internal/game/` (package `game`); `cmd/logos/main.go` is a one-liner that calls `game.Run()`. Asset embeds (`//go:embed "assets/..."`) resolve against the `internal/game/` directory because Go forbids `..` in embed paths — keeping the assets next to the code that embeds them is the only stable layout. File-map paths below are repo-root-relative; the body of this spec uses bare filenames since they're unambiguous within the game package.
+
 | Path | Role |
 |------|------|
-| `main.go` | Game struct, UI tree, bands, feed scroll, `pushNews`, `resetGameState`/`restart`, sim tick (`lastSimTick` → `accumulateInfection` + `accumulateProduction` + `accumulateContainment` + `easeNodes`), `Update`/`Draw`/`Layout` wiring |
-| `titlebar.go` | Phone-style title bar (clock + signal + 5G + battery icons via `vector`); `populatePhoneTitleBar` returns both the clock `Text` and the battery `Graphic` so the loss sequence can animate the segments |
-| `settings_menu.go` | Titlebar hamburger button + Music / Sound dropdown; `handleSettingsMenu` (pre-debug-menu, consumes taps while open) and `drawSettingsMenu` (on top of everything); `toggleMusicMute` via `SetVolume`, `toggleSFXMute` via the `sfxMuted` package flag |
-| `title.go` | Cover splash screen: embedded `assets/cover 9x16.jpg`, `handleTitleScreen`/`dismissTitle`/`drawTitleScreen`; dismiss re-stamps sim clocks and starts music |
-| `audio.go` | `audio.Context` singleton, music player lifecycle (`startMusic`/`stopMusic`, infinite-loop MP3), SFX PCM decode + `playSFX` one-shots, `sfxMuted` package flag + `applyMusicVolume` hook used by the settings menu |
-| `network.go` | Static catalog (`staticCatalog` with `NodeDef.PatchNews`) + edge spec (`staticEdgeSpec`) + `Network`/`buildNetwork`; resolved once at startup, immutable |
-| `nodes.go` | Visible node map: state/defense/security/production, dynamic visibility (`initVisibleNetwork`, `addVisibleNode`, `revealNeighbors` w/ security bias), ring layout (`relayoutTargets`, `easeNodes`), draw (nodes + edges + hidden-edge stubs + `+1` floats), attack scheduling, infection/containment/production accumulators, click routing |
-| `overlay.go` | Game-state overlay (two rows: infection + containment with bars and rate labels; right-edge `EXPLOITS` counter) drawn on top of the map |
-| `patch_menu.go` | `Defend` / `"Patch"` action menu for attacked nodes; `applyPatch`/`applyDefend` consume patches, play their SFX, `applyPatch` emits a `pickPatchNews` line into the feed |
-| `gameover.go` | `endgame` latch + message pools, `triggerWin`/`triggerLoss`, `advanceWinSequence`/`advanceLossSequence` (email + battery drain + screen off + Restart overlay) |
-| `debug_menu.go` | Bottom-right-corner `Credits` / `Win` / `Restart` / `Lose` buttons pinned to the full layout; `Restart` stays live after an endgame to get out of the screen-off state fast; `Credits` jumps into the credits roll at any time |
-| `credits.go` | Credits-roll overlay: bottom-up scrolling attribution block, "Thanks for playing" terminator, parked world-state stats block, `Try again?` button that restarts back to the title |
-| `hint.go` | First-run "tap yellow nodes" banner under the overlay strip; process-scoped `hintEverDismissed` latch, dismissed on first patch menu open |
-| `feed_drag.go` | Touch / left-mouse drag-to-scroll for the news feed |
-| `wheel_native.go` | `feedWheelContentPixelsPerUnit = 45.0` (build tag `!js`, layout-pixel-scaled) |
-| `wheel_js.go` | `feedWheelContentPixelsPerUnit = 2.5` (build tag `js`, layout-pixel-scaled) |
-| `assets/cover 9x16.jpg` | Title screen cover, embedded |
-| `assets/neon firewall.mp3` | In-game loop track, embedded |
-| `assets/sfx/{blip,boom,power,pickup,drain,email}.wav` | SFX one-shots, embedded |
+| `cmd/logos/main.go` | Thin entry point: `func main() { game.Run() }`. The only `package main` file in the repo. |
+| `internal/game/main.go` | Game struct, UI tree, bands, feed scroll, `pushNews`, `resetGameState`/`restart`, sim tick (`lastSimTick` → `accumulateInfection` + `accumulateProduction` + `accumulateContainment` + `easeNodes`), `Update`/`Draw`/`Layout` wiring, exported `Run()` |
+| `internal/game/titlebar.go` | Phone-style title bar (clock + signal + 5G + battery icons via `vector`); `populatePhoneTitleBar` returns both the clock `Text` and the battery `Graphic` so the loss sequence can animate the segments |
+| `internal/game/settings_menu.go` | Titlebar hamburger button + Music / Sound dropdown; `handleSettingsMenu` (pre-debug-menu, consumes taps while open) and `drawSettingsMenu` (on top of everything); `toggleMusicMute` via `SetVolume`, `toggleSFXMute` via the `sfxMuted` package flag |
+| `internal/game/title.go` | Cover splash screen: embedded `assets/cover 9x16.jpg`, `handleTitleScreen`/`dismissTitle`/`drawTitleScreen`; dismiss re-stamps sim clocks and starts music |
+| `internal/game/audio.go` | `audio.Context` singleton, music player lifecycle (`startMusic`/`stopMusic`, infinite-loop MP3), SFX PCM decode + `playSFX` one-shots, `sfxMuted` package flag + `applyMusicVolume` hook used by the settings menu |
+| `internal/game/network.go` | Static catalog (`staticCatalog` with `NodeDef.PatchNews`) + edge spec (`staticEdgeSpec`) + `Network`/`buildNetwork`; resolved once at startup, immutable |
+| `internal/game/nodes.go` | Visible node map: state/defense/security/production, dynamic visibility (`initVisibleNetwork`, `addVisibleNode`, `revealNeighbors` w/ security bias), ring layout (`relayoutTargets`, `easeNodes`), draw (nodes + edges + hidden-edge stubs + `+1` floats), attack scheduling, infection/containment/production accumulators, click routing |
+| `internal/game/overlay.go` | Game-state overlay (two rows: infection + containment with bars and rate labels; right-edge `EXPLOITS` counter) drawn on top of the map |
+| `internal/game/patch_menu.go` | `Defend` / `"Patch"` action menu for attacked nodes; `applyPatch`/`applyDefend` consume patches, play their SFX, `applyPatch` emits a `pickPatchNews` line into the feed |
+| `internal/game/gameover.go` | `endgame` latch + message pools, `triggerWin`/`triggerLoss`, `advanceWinSequence`/`advanceLossSequence` (email + battery drain + screen off + Restart overlay) |
+| `internal/game/debug_menu.go` | Bottom-right-corner `Credits` / `Win` / `Restart` / `Lose` buttons pinned to the full layout; `Restart` stays live after an endgame to get out of the screen-off state fast; `Credits` jumps into the credits roll at any time |
+| `internal/game/credits.go` | Credits-roll overlay: bottom-up scrolling attribution block, "Thanks for playing" terminator, parked world-state stats block, `Try again?` button that restarts back to the title |
+| `internal/game/hint.go` | First-run "tap yellow nodes" banner under the overlay strip; process-scoped `hintEverDismissed` latch, dismissed on first patch menu open |
+| `internal/game/feed_drag.go` | Touch / left-mouse drag-to-scroll for the news feed |
+| `internal/game/wheel_native.go` | `feedWheelContentPixelsPerUnit = 45.0` (build tag `!js`, layout-pixel-scaled) |
+| `internal/game/wheel_js.go` | `feedWheelContentPixelsPerUnit = 2.5` (build tag `js`, layout-pixel-scaled) |
+| `internal/game/assets/cover 9x16.jpg` | Title screen cover, embedded |
+| `internal/game/assets/neon firewall.mp3` | In-game loop track, embedded |
+| `internal/game/assets/ashes in chrome.mp3` | Credits-roll loop track, embedded |
+| `internal/game/assets/sfx/{blip,boom,power,pickup,drain,email,news,infected}.wav` | SFX one-shots, embedded |
 | `wasm/index.html` | WASM shell copied to `dist/wasm/`; includes a streaming loader (progress bar + MB readout). Uses `Content-Length` when the server exposes it; otherwise falls back to `WASM_EXPECTED_BYTES = 29 MiB` and caps the displayed fraction at `0.99` until the stream ends so the bar still advances on gzip/CDN setups that strip the header. Status text marks estimated mode with `~` (`loading X.X / ~Y.Y MB`). |
-| `Makefile` | `build`, `wasm`, `serve-wasm`, `clean` |
+| `Makefile` | `build`, `wasm`, `serve-wasm`, cross-compile (`build-win`, `build-mac`, `build-mac-{arm64,amd64}`), aggregator (`dist`), `clean`. Builds target `./cmd/logos` (overridable via `PKG`). |

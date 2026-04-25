@@ -6,6 +6,7 @@
 export CGO_ENABLED := 0
 
 BIN      := logos
+PKG      := ./cmd/logos
 DIST     := dist
 WASM_DIR := $(DIST)/wasm
 WIN_DIR  := $(DIST)/windows
@@ -25,11 +26,11 @@ WIN_LDFLAGS  := $(DIST_LDFLAGS) -H=windowsgui
 
 build:
 	mkdir -p $(DIST)
-	go build -o $(DIST)/$(BIN) .
+	go build -o $(DIST)/$(BIN) $(PKG)
 
 wasm:
 	mkdir -p $(WASM_DIR)
-	GOOS=js GOARCH=wasm go build -trimpath -o $(WASM_DIR)/game.wasm .
+	GOOS=js GOARCH=wasm go build -trimpath -o $(WASM_DIR)/game.wasm $(PKG)
 	cp "$(WASM_EXEC)" $(WASM_DIR)/wasm_exec.js
 	cp wasm/index.html $(WASM_DIR)/index.html
 	cd $(WASM_DIR) && zip -q -FS logos.zip index.html wasm_exec.js game.wasm
@@ -41,18 +42,18 @@ serve-wasm: wasm
 # contains logos.exe at its root (itch.io players extract into their own folder).
 build-win:
 	mkdir -p $(WIN_DIR)
-	GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="$(WIN_LDFLAGS)" -o $(WIN_DIR)/$(BIN).exe .
+	GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="$(WIN_LDFLAGS)" -o $(WIN_DIR)/$(BIN).exe $(PKG)
 	cd $(WIN_DIR) && zip -q -FS ../logos-windows-amd64.zip $(BIN).exe
 
 # Per-arch darwin binaries. Named with the arch suffix so they can coexist in
 # the same directory alongside the fused universal binary produced by build-mac.
 build-mac-arm64:
 	mkdir -p $(MAC_DIR)
-	GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="$(DIST_LDFLAGS)" -o $(MAC_DIR)/$(BIN)-arm64 .
+	GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="$(DIST_LDFLAGS)" -o $(MAC_DIR)/$(BIN)-arm64 $(PKG)
 
 build-mac-amd64:
 	mkdir -p $(MAC_DIR)
-	GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags="$(DIST_LDFLAGS)" -o $(MAC_DIR)/$(BIN)-amd64 .
+	GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags="$(DIST_LDFLAGS)" -o $(MAC_DIR)/$(BIN)-amd64 $(PKG)
 
 # Fuses both mac binaries into a single universal (fat) Mach-O. The resulting
 # $(BIN) file runs natively on Apple Silicon and Intel Macs. lipo is part of

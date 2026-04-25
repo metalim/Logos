@@ -18,7 +18,7 @@ Win: survive until the timer expires. Lose: infection reaches 100% (battery drai
 Requires Go 1.21+. CGO not needed.
 
 ```bash
-go run .         # build + run from source (fastest dev loop)
+go run ./cmd/logos   # build + run from source (fastest dev loop)
 
 make build       # native binary for the host OS         → dist/logos
 make wasm        # browser build                         → dist/wasm/logos.zip

@@ -1,4 +1,4 @@
-package main
+package game
 
 import (
 	"bytes"
@@ -620,7 +620,11 @@ func (g *Game) Layout(_, _ int) (int, int) {
 	return layoutWidth, layoutHeight
 }
 
-func main() {
+// Run is the package's exported entry point. cmd/logos/main.go is a thin
+// shim that calls Run; everything game-side lives here so the cmd binary
+// stays a one-liner and the game logic stays import-friendly for tests
+// and future hosts (e.g. a separate web shell).
+func Run() {
 	ebiten.SetWindowTitle("Zero-Day Lunch")
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeDisabled)
 	ebiten.SetWindowSize(windowWidth, windowHeight)

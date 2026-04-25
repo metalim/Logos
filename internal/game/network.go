@@ -1,4 +1,4 @@
-package main
+package game
 
 // NodeDef is a static catalog entry. The catalog plus staticEdgeSpec defines the full
 // network (~60+ companies) the game can ever surface; only a subset is visible at any

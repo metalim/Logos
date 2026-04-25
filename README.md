@@ -4,6 +4,11 @@ A vertical UI thriller on a phone screen. You're a QA engineer who gets a push n
 
 Built with [Ebitengine](https://ebitengine.org/) + [ebitenui](https://github.com/ebitenui/ebitenui) in Go.
 
+## Links
+
+- [Play on itch.io](https://metalim.itch.io/zero-day-lunch)
+- [Ludum Dare 59 entry](https://ldjam.com/events/ludum-dare/59/zero-day-lunch)
+
 ## Play
 
 - **Tap an Attack node** (yellow, pulsing) before the timer fills — opens an action menu.

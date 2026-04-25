@@ -2,6 +2,9 @@
 
 Narrative design, lore, and target gameplay loop live in [CONCEPT.md](CONCEPT.md). This document describes **what the codebase implements today** and **non-obvious UI rules** so behavior stays consistent when changing code.
 
+- **Web build (itch.io):** [Zero-Day Lunch](https://metalim.itch.io/zero-day-lunch)
+- **Jam page:** [Ludum Dare 59 — Zero-Day Lunch](https://ldjam.com/events/ludum-dare/59/zero-day-lunch)
+
 ## Stack
 
 - **Go**, [Ebiten v2](https://ebitengine.org/), [ebitenui](https://github.com/ebitenui/ebitenui)

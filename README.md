@@ -11,12 +11,13 @@ Built with [Ebitengine](https://ebitengine.org/) + [ebitenui](https://github.com
 
 ## Play
 
-- **Tap an Attack node** (yellow, pulsing) before the timer fills — opens an action menu.
-- **Patch:** consumes one patch, kills the node, drops a news headline about the economic fallout.
-- **Defend:** free, only delays infection on that node.
+- **Tap an Attack node** (yellow, pulsing) before its defense timer runs out — opens an action menu. You can open the menu even with zero exploits left (buttons are dimmed; useful to inspect the situation).
+- **"Patch":** costs one exploit, locks the node out of play (`Patched`), and drops a news headline about the economic fallout a moment later.
+- **Defend:** costs one exploit, bounces the node back to `Normal` so it stays on the map (Security nodes keep their patch-production progress and can mint again).
+- **Security nodes** (teal ring) mint +1 exploit every 15s while they stay `Normal`.
 - **Hamburger menu** in the top status bar — toggle Music / Sound.
 
-Win: survive until the timer expires. Lose: infection reaches 100% (battery drains, screen goes black).
+**Win:** keep **INFECTION** below 100% until **CONTAINMENT** fills on its own — it ticks up from live play time only (compounding rate, ~2 minutes if nothing stops the clock). **Lose:** infection hits 100% first (battery drains, screen goes black, Logos emails Sam).
 
 ## Build
 

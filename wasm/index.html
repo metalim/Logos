@@ -18,7 +18,27 @@
 		}
 		#loader.done { opacity: 0; pointer-events: none; }
 		#loader .title { font-size: 24px; letter-spacing: 2px; opacity: 0.9; }
-		#loader .status { font-size: 14px; opacity: 0.7; min-height: 1em; }
+		#loader .status { font-size: 14px; opacity: 0.7; min-height: 1em; text-align: center; max-width: 90%; }
+		#loader .choices {
+			display: flex; flex-direction: column; gap: 12px;
+			width: min(90%, 320px);
+		}
+		#loader button {
+			font: inherit; font-size: 15px; letter-spacing: 1px;
+			padding: 14px 18px;
+			color: #e8eaf0;
+			background: #1a1c22;
+			border: 1px solid #2c2e34;
+			border-radius: 2px;
+			cursor: pointer;
+		}
+		#loader button:hover { border-color: #40c8c0; color: #fff; }
+		#loader button:active { background: #242830; }
+		#loader button .sub {
+			display: block; margin-top: 6px;
+			font-size: 11px; letter-spacing: 0;
+			opacity: 0.55;
+		}
 		#loader .bar {
 			width: min(60%, 360px); height: 10px;
 			background: #1a1c22; border: 1px solid #2c2e34; border-radius: 2px;
@@ -29,14 +49,30 @@
 			background: linear-gradient(90deg, #2e827c 0%, #40c8c0 100%);
 			transition: width 120ms linear;
 		}
+		#loader .progress { display: none; flex-direction: column; align-items: center; gap: 18px; width: 100%; }
+		#loader.loading .choices { display: none; }
+		#loader.loading .progress { display: flex; }
 	</style>
 	<script src="wasm_exec.js"></script>
 </head>
 <body>
 	<div id="loader">
 		<div class="title">ZERO-DAY LUNCH</div>
-		<div class="bar"><div class="fill" id="loaderFill"></div></div>
-		<div class="status" id="loaderStatus">loading…</div>
+		<div class="status" id="loadError" hidden></div>
+		<div class="choices">
+			<button type="button" data-wasm="game-jam.wasm">
+				Jam version
+				<span class="sub">Ludum Dare 59 submission</span>
+			</button>
+			<button type="button" data-wasm="game.wasm">
+				Post-jam version
+				<span class="sub">updates after the jam</span>
+			</button>
+		</div>
+		<div class="progress">
+			<div class="bar"><div class="fill" id="loaderFill"></div></div>
+			<div class="status" id="loaderStatus">loading…</div>
+		</div>
 	</div>
 	<script>
 		// Rough uncompressed size of game.wasm; used as a fallback when the server omits
@@ -45,50 +81,65 @@
 		// 100% before the stream actually ends; the post-download clamp to 1.0 happens
 		// unconditionally on the "initializing…" step.
 		const WASM_EXPECTED_BYTES = 29 * 1048576;
-		(async () => {
-			const loader = document.getElementById("loader");
-			const fill = document.getElementById("loaderFill");
-			const status = document.getElementById("loaderStatus");
-			const setProgress = (frac, text) => {
-				fill.style.width = (Math.max(0, Math.min(1, frac)) * 100).toFixed(1) + "%";
-				if (text !== undefined) status.textContent = text;
-			};
-			try {
-				const resp = await fetch("game.wasm");
-				if (!resp.ok) throw new Error("HTTP " + resp.status);
-				// Prefer Content-Length; fall back to the baked-in expected size so the bar
-				// still advances monotonically on servers that strip the header (gzip/CDN).
-				const headerTotal = parseInt(resp.headers.get("Content-Length") || "0", 10);
-				const total = headerTotal > 0 ? headerTotal : WASM_EXPECTED_BYTES;
-				const known = headerTotal > 0;
-				const reader = resp.body.getReader();
-				const chunks = [];
-				let received = 0;
-				while (true) {
-					const { done, value } = await reader.read();
-					if (done) break;
-					chunks.push(value);
-					received += value.length;
-					// When total is an estimate, cap the displayed fraction at 0.99 so the
-					// bar never claims "done" before the stream actually ends.
-					const frac = known ? received / total : Math.min(0.99, received / total);
-					const mb = (received / 1048576).toFixed(1);
-					const totalMB = (total / 1048576).toFixed(1);
-					setProgress(frac, known ? `loading ${mb} / ${totalMB} MB` : `loading ${mb} / ~${totalMB} MB`);
-				}
-				setProgress(1, "initializing…");
-				const blob = new Blob(chunks, { type: "application/wasm" });
-				const buf = await blob.arrayBuffer();
-				const go = new Go();
-				const result = await WebAssembly.instantiate(buf, go.importObject);
-				loader.classList.add("done");
-				setTimeout(() => loader.remove(), 350);
-				go.run(result.instance);
-			} catch (err) {
-				console.error(err);
-				status.textContent = "load failed: " + (err && err.message || err);
+
+		const loader = document.getElementById("loader");
+		const fill = document.getElementById("loaderFill");
+		const status = document.getElementById("loaderStatus");
+		const loadError = document.getElementById("loadError");
+
+		const setProgress = (frac, text) => {
+			fill.style.width = (Math.max(0, Math.min(1, frac)) * 100).toFixed(1) + "%";
+			if (text !== undefined) status.textContent = text;
+		};
+
+		async function loadWasm(url) {
+			loader.classList.add("loading");
+			setProgress(0, "loading…");
+			const resp = await fetch(url);
+			if (!resp.ok) throw new Error("HTTP " + resp.status);
+			const headerTotal = parseInt(resp.headers.get("Content-Length") || "0", 10);
+			const total = headerTotal > 0 ? headerTotal : WASM_EXPECTED_BYTES;
+			const known = headerTotal > 0;
+			const reader = resp.body.getReader();
+			const chunks = [];
+			let received = 0;
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				chunks.push(value);
+				received += value.length;
+				const frac = known ? received / total : Math.min(0.99, received / total);
+				const mb = (received / 1048576).toFixed(1);
+				const totalMB = (total / 1048576).toFixed(1);
+				setProgress(frac, known ? `loading ${mb} / ${totalMB} MB` : `loading ${mb} / ~${totalMB} MB`);
 			}
-		})();
+			setProgress(1, "initializing…");
+			const blob = new Blob(chunks, { type: "application/wasm" });
+			const buf = await blob.arrayBuffer();
+			const go = new Go();
+			const result = await WebAssembly.instantiate(buf, go.importObject);
+			loader.classList.add("done");
+			setTimeout(() => loader.remove(), 350);
+			go.run(result.instance);
+		}
+
+		for (const btn of document.querySelectorAll("#loader button[data-wasm]")) {
+			btn.addEventListener("click", () => {
+				loadError.hidden = true;
+				for (const b of document.querySelectorAll("#loader button[data-wasm]")) {
+					b.disabled = true;
+				}
+				loadWasm(btn.dataset.wasm).catch((err) => {
+					console.error(err);
+					loader.classList.remove("loading");
+					for (const b of document.querySelectorAll("#loader button[data-wasm]")) {
+						b.disabled = false;
+					}
+					loadError.textContent = "load failed: " + (err && err.message || err);
+					loadError.hidden = false;
+				});
+			});
+		}
 	</script>
 </body>
 </html>

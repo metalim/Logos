@@ -11,7 +11,7 @@ Narrative design, lore, and target gameplay loop live in [CONCEPT.md](CONCEPT.md
 - **Font:** `golang.org/x/image/font/gofont/gomono` via `ebiten/v2/text/v2`
 - **Layout:** `cmd/logos/main.go` (entry point, `package main`) + `internal/game/` (everything else, `package game`); assets embedded from `internal/game/assets/`. See File map below.
 - **Desktop build:** `CGO_ENABLED=0` (see [Makefile](Makefile))
-- **WASM:** `make wasm` → `dist/wasm/` (`game.wasm`, `wasm_exec.js`, `index.html`, plus `logos.zip` bundling all three for itch.io upload)
+- **WASM:** `make wasm` → `dist/wasm/` (`game.wasm`, `game-jam.wasm`, `wasm_exec.js`, `index.html`, plus `logos.zip` for itch.io)
 
 ## Window
 
@@ -420,5 +420,5 @@ All game source lives in `internal/game/` (package `game`); `cmd/logos/main.go` 
 | `internal/game/assets/neon firewall.mp3` | In-game loop track, embedded |
 | `internal/game/assets/ashes in chrome.mp3` | Credits-roll loop track, embedded |
 | `internal/game/assets/sfx/{blip,boom,power,pickup,drain,email,news,infected}.wav` | SFX one-shots, embedded |
-| `wasm/index.html` | WASM shell copied to `dist/wasm/`; includes a streaming loader (progress bar + MB readout). Uses `Content-Length` when the server exposes it; otherwise falls back to `WASM_EXPECTED_BYTES = 29 MiB` and caps the displayed fraction at `0.99` until the stream ends so the bar still advances on gzip/CDN setups that strip the header. Status text marks estimated mode with `~` (`loading X.X / ~Y.Y MB`). |
-| `Makefile` | `build`, `wasm`, `serve-wasm`, cross-compile (`build-win`, `build-mac`, `build-mac-{arm64,amd64}`), aggregator (`dist`), `clean`. Builds target `./cmd/logos` (overridable via `PKG`). |
+| `wasm/index.html` | WASM shell copied to `dist/wasm/`. Start screen: **Jam version** (`game-jam.wasm`, frozen at `JAM_COMMIT` in Makefile) vs **Post-jam version** (`game.wasm`, current tree). After pick, streaming loader (progress bar + MB readout). Uses `Content-Length` when present; else `WASM_EXPECTED_BYTES = 29 MiB` and caps at `0.99` until the stream ends. |
+| `Makefile` | `build`, `wasm`, `serve-wasm`, cross-compile (`build-win`, `build-mac`, `build-mac-{arm64,amd64}`), aggregator (`dist`), `clean`. Builds target `./cmd/logos` (overridable via `PKG`). `dist/.inputs.sha256` fingerprints Go sources + embedded assets + `go.mod`/`go.sum` so binaries rebuild when inputs change (asset paths with spaces are hashed in the recipe, not as make prerequisites). |

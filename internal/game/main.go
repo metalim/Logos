@@ -101,6 +101,7 @@ type Game struct {
 	batterySegs   int
 
 	mapLabelFace     text.Face
+	mapLabelCache    map[string]*ebiten.Image // name → prerendered label (see mapLabelImage)
 	overlayLabelFace text.Face
 	overlayValueFace text.Face
 
@@ -428,7 +429,9 @@ func (g *Game) feedScrollSlack() (extra, viewH float64, ok bool) {
 	if g.feedScroll == nil || g.newsText == nil {
 		return 0, 0, false
 	}
+	end := profileSection("update", "feed.PreferredSize")
 	_, ch := g.newsText.PreferredSize()
+	end()
 	viewH = float64(g.feedScroll.ViewRect().Dy())
 	extra = float64(ch) - viewH
 	return extra, viewH, true
@@ -437,6 +440,8 @@ func (g *Game) feedScrollSlack() (extra, viewH float64, ok bool) {
 // stepSmoothFeedScroll moves feedScrollPx toward feedScrollTarget*extra and writes ScrollTop.
 // Used every frame after ui.Update for both auto “scroll to bottom” and manual wheel (target-only) input.
 func (g *Game) stepSmoothFeedScroll() {
+	end := profileSection("update", "feed.stepSmooth")
+	defer end()
 	extra, _, ok := g.feedScrollSlack()
 	if !ok || extra <= 0 {
 		if g.feedScroll != nil {
@@ -545,7 +550,11 @@ func (g *Game) Update() error {
 	if g.handleCredits() {
 		return nil
 	}
+	profileMaybeBeginFrame(g)
+
+	end := profileSection("update", "checkGameOver")
 	g.checkGameOver()
+	end()
 	if g.handleScreenOff() {
 		return nil
 	}
@@ -555,6 +564,7 @@ func (g *Game) Update() error {
 	g.lastSimTick = now
 
 	if !g.gameEnded() {
+		end = profileSection("update", "sim")
 		if time.Since(g.lastAttackAt) >= attackInterval {
 			g.lastAttackAt = time.Now()
 			g.attackTick()
@@ -563,36 +573,51 @@ func (g *Game) Update() error {
 		g.accumulateInfection(dt)
 		g.accumulateProduction(dt)
 		g.accumulateContainment(dt)
+		g.easeNodes(dt)
+		end()
+	} else {
+		end = profileSection("update", "easeNodes")
+		g.easeNodes(dt)
+		end()
 	}
-	// easeNodes always runs so any in-flight migrate-inward animation finishes cleanly
-	// even after the loss latch — frozen sim, but no jarring half-moved nodes.
-	g.easeNodes(dt)
 
+	end = profileSection("update", "clock")
 	updateClock(g.clockText)
+	end()
 
+	end = profileSection("update", "ui.Update")
 	g.ui.Update()
+	end()
 	if g.feedScrollNeedBottom {
 		g.feedScrollNeedBottom = false
+		end = profileSection("update", "feed.requestBottom")
 		g.requestFeedScrollBottom()
+		end()
 	}
 	if g.handleSettingsMenu() {
 		// A tap consumed by the settings UI never falls through to nodes / patch
 		// menu / feed drag on the same frame, so the menu can overlap the map
 		// area without opening an Attack's patch menu behind it.
+		end = profileSection("update", "input")
 		g.handleFeedDrag()
 		g.stepSmoothFeedScroll()
 		g.flushPendingNews()
+		end()
 		return nil
 	}
+	end = profileSection("update", "input")
 	g.handleDebugMenu()
 	g.handlePatchClick()
 	g.handleFeedDrag()
 	g.stepSmoothFeedScroll()
 	g.flushPendingNews()
+	end()
 	return nil
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
+	defer profileEndFrame()
+
 	if g.showTitle {
 		g.drawTitleScreen(screen)
 		return
@@ -605,14 +630,28 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		g.drawScreenOff(screen)
 		return
 	}
+	end := profileSection("draw", "ui.Draw")
 	g.ui.Draw(screen)
+	end()
 	g.drawNodeMap(screen)
+	end = profileSection("draw", "drawPatchFloats")
 	g.drawPatchFloats(screen)
+	end()
+	end = profileSection("draw", "drawGameOverlay")
 	g.drawGameOverlay(screen)
+	end()
+	end = profileSection("draw", "drawHint")
 	g.drawHint(screen)
+	end()
+	end = profileSection("draw", "drawPatchMenu")
 	g.drawPatchMenu(screen)
+	end()
+	end = profileSection("draw", "drawDebugMenu")
 	g.drawDebugMenu(screen)
+	end()
+	end = profileSection("draw", "drawSettingsMenu")
 	g.drawSettingsMenu(screen)
+	end()
 }
 
 func (g *Game) Layout(_, _ int) (int, int) {
@@ -625,6 +664,8 @@ func (g *Game) Layout(_, _ int) (int, int) {
 // stays a one-liner and the game logic stays import-friendly for tests
 // and future hosts (e.g. a separate web shell).
 func Run() {
+	initProfiling()
+
 	ebiten.SetWindowTitle("Zero-Day Lunch")
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeDisabled)
 	ebiten.SetWindowSize(windowWidth, windowHeight)

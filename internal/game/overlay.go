@@ -53,9 +53,11 @@ func (g *Game) drawGameOverlay(screen *ebiten.Image) {
 	w := float32(rect.Dx() - 2*overlayMarginPx)
 	h := float32(overlayHeightPx)
 
+	endChrome := profileSection("draw", "overlay.chrome")
 	vector.FillRect(screen, x, y, w, h, overlayBG, false)
 	const sw = overlayBorderW
 	vector.StrokeRect(screen, x+sw/2.0, y+sw/2.0, w-sw, h-sw, sw, overlayBorder, false)
+	endChrome()
 
 	cy := float64(y) + float64(h)/2
 	cyTop := float64(y) + float64(h)/4
@@ -65,9 +67,11 @@ func (g *Game) drawGameOverlay(screen *ebiten.Image) {
 	// "INFECTION" and "CONTAINMENT") doesn't shift its bar mid-morph. Measure all
 	// three and pick the max so the bar anchor stays constant throughout the win
 	// sequence's label crossfade.
+	endMeasure := profileSection("draw", "overlay.measure")
 	labelInfW, _ := text.Measure("INFECTION", g.overlayLabelFace, 0)
 	labelPanW, _ := text.Measure("PANOPTICON", g.overlayLabelFace, 0)
 	labelConW, _ := text.Measure("CONTAINMENT", g.overlayLabelFace, 0)
+	endMeasure()
 	labelMaxW := labelInfW
 	if labelPanW > labelMaxW {
 		labelMaxW = labelPanW
@@ -80,10 +84,12 @@ func (g *Game) drawGameOverlay(screen *ebiten.Image) {
 	infectionRate := infectionRatePerSec * float64(countInfected(g.nodes))
 	morphT := g.winMorphProgress()
 	infFill := lerpColor(infectionFill, infectionFillPan, morphT)
+	endRows := profileSection("draw", "overlay.rows")
 	g.drawInfectionRow(screen, float64(x), barX, cyTop,
 		g.infectionPct, infectionRate, infectionTrack, infFill, morphT)
 	g.drawProgressRow(screen, float64(x), barX, cyBot,
 		"CONTAINMENT", g.containmentPct, g.currentContainmentRate(), containmentTrack, containmentFill)
+	endRows()
 
 	// Align "xN" (overlayValueFace, bigger) and "EXPLOITS" (overlayLabelFace, smaller)
 	// by their glyph baselines. AlignCenter at a shared cy would put their line-box
@@ -95,12 +101,14 @@ func (g *Game) drawGameOverlay(screen *ebiten.Image) {
 	lblM := g.overlayLabelFace.Metrics()
 	valBaseline := cy + (valM.HAscent-valM.HDescent)/2
 	lblCy := valBaseline - (lblM.HAscent-lblM.HDescent)/2
+	endPatches := profileSection("draw", "overlay.patches")
 	rightX := float64(x+w) - overlayInnerPadPx
 	rightX -= drawAlignedText(screen, g.overlayValueFace, fmt.Sprintf("x%d", g.patchesLeft),
 		rightX, cy, text.AlignEnd, text.AlignCenter, overlayValue)
 	rightX -= overlayItemGapPx
 	drawAlignedText(screen, g.overlayLabelFace, "EXPLOITS",
 		rightX, lblCy, text.AlignEnd, text.AlignCenter, overlayLabel)
+	endPatches()
 }
 
 // drawInfectionRow draws the top overlay row. It's a variant of drawProgressRow that

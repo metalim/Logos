@@ -241,6 +241,8 @@ func (g *Game) addVisibleNode(defIdx int, x, y float64) int {
 			g.edges = append(g.edges, Edge{From: visIdx, To: neighborVisIdx})
 		}
 	}
+	// Bake the label bitmap off the draw hot path so reveal frames don't pay text.Draw.
+	g.mapLabelImage(def.Name)
 	return visIdx
 }
 
@@ -407,18 +409,25 @@ func (g *Game) drawNodeMap(screen *ebiten.Image) {
 		return float32(innerX + n.X*innerW), float32(innerY + n.Y*innerH)
 	}
 
+	profileNoteMapSize(len(g.nodes), len(g.edges))
+
+	endEdges := profileSection("draw", "map.edges")
 	for _, e := range g.edges {
 		x1, y1 := pos(g.nodes[e.From])
 		x2, y2 := pos(g.nodes[e.To])
 		vector.StrokeLine(screen, x1, y1, x2, y2, edgeStrokeW, edgeColor, true)
 	}
+	endEdges()
 
 	centerX := float32(innerX + 0.5*innerW)
 	centerY := float32(innerY + 0.5*innerH)
+	endStubs := profileSection("draw", "map.stubs")
 	g.drawHiddenEdgeStubs(screen, pos, centerX, centerY)
+	endStubs()
 
 	frozen := g.gameEnded()
 	morphT := g.winMorphProgress()
+	endNodes := profileSection("draw", "map.nodes")
 	for _, n := range g.nodes {
 		x, y := pos(n)
 		fill, stroke := nodeColors(n.State)
@@ -451,13 +460,12 @@ func (g *Game) drawNodeMap(screen *ebiten.Image) {
 			}
 		}
 	}
+	endNodes()
 
-	if g.mapLabelFace != nil {
-		for _, n := range g.nodes {
-			x, y := pos(n)
-			drawCenteredLabel(screen, g.mapLabelFace, n.Name,
-				float64(x), float64(y)+nodeRadius+nodeLabelGapY, labelColor)
-		}
+	for _, n := range g.nodes {
+		x, y := pos(n)
+		g.drawMapLabel(screen, n.Name,
+			float64(x), float64(y)+nodeRadius+nodeLabelGapY)
 	}
 }
 
@@ -883,10 +891,45 @@ func fillPieSector(dst *ebiten.Image, cx, cy, r float32, startAngle, sweep float
 	vector.FillPath(dst, p, nil, op)
 }
 
-func drawCenteredLabel(dst *ebiten.Image, face text.Face, s string, cx, top float64, clr color.Color) {
-	w, _ := text.Measure(s, face, 0)
+// mapLabelImage returns a cached bitmap of the node name. Each distinct catalog name
+// is rasterized once via text.Draw; subsequent frames only blit with DrawImage.
+func (g *Game) mapLabelImage(name string) *ebiten.Image {
+	if g.mapLabelFace == nil || name == "" {
+		return nil
+	}
+	if g.mapLabelCache == nil {
+		g.mapLabelCache = make(map[string]*ebiten.Image)
+	}
+	if img := g.mapLabelCache[name]; img != nil {
+		return img
+	}
+	end := profileSection("draw", "map.labels.bake")
+	w, h := text.Measure(name, g.mapLabelFace, 0)
+	iw := int(math.Ceil(w))
+	ih := int(math.Ceil(h))
+	if iw <= 0 || ih <= 0 {
+		end()
+		return nil
+	}
+	img := ebiten.NewImage(iw, ih)
 	op := &text.DrawOptions{}
-	op.GeoM.Translate(cx-w/2, top)
-	op.ColorScale.ScaleWithColor(clr)
-	text.Draw(dst, s, face, op)
+	op.ColorScale.ScaleWithColor(labelColor)
+	text.Draw(img, name, g.mapLabelFace, op)
+	g.mapLabelCache[name] = img
+	end()
+	return img
+}
+
+// drawMapLabel blits a cached name bitmap centered at cx with its top at topY.
+func (g *Game) drawMapLabel(dst *ebiten.Image, name string, cx, topY float64) {
+	img := g.mapLabelImage(name)
+	if img == nil {
+		return
+	}
+	end := profileSection("draw", "map.labels.blit")
+	b := img.Bounds()
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Translate(cx-float64(b.Dx())/2, topY)
+	dst.DrawImage(img, op)
+	end()
 }

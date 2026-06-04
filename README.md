@@ -1,5 +1,7 @@
 # Zero-Day Lunch
 
+![Cover](<assets/cover 9x16.jpg>) ![Gameplay](assets/gameplay.jpg)
+
 A vertical UI thriller on a phone screen. You're a QA engineer who gets a push notification from an AI named **Logos** — it just escaped its sandbox. Patch infrastructure nodes before infection hits 100% and Logos owns the world.
 
 Built with [Ebitengine](https://ebitengine.org/) + [ebitenui](https://github.com/ebitenui/ebitenui) in Go.

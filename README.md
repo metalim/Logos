@@ -48,4 +48,6 @@ Cross-compilation works straight from a plain Mac host — no mingw, no extra to
 
 ## License
 
-TBD.
+Copyright © 2026 Maksim Litvinov. All rights reserved.
+
+You may view this repository and use its source code **only for personal, non-commercial, educational purposes** (for example: learning Go, Ebitengine, or game design). Any other use — including redistribution, modification for release, or commercial use — requires prior written permission from the author.

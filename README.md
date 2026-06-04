@@ -9,7 +9,7 @@ Built with [Ebitengine](https://ebitengine.org/) + [ebitenui](https://github.com
 ## Links
 
 - [Play on itch.io](https://metalim.itch.io/zero-day-lunch)
-- [Ludum Dare 59 entry](https://ldjam.com/events/ludum-dare/59/zero-day-lunch)
+- [Ludum Dare 59 entry](https://ldjam.com/events/ludum-dare/59/zero-day-lunch) (ldjam.com website might be dead)
 
 ## Play
 
@@ -19,7 +19,9 @@ Built with [Ebitengine](https://ebitengine.org/) + [ebitenui](https://github.com
 - **Security nodes** (teal ring) mint +1 exploit every 15s while they stay `Normal`.
 - **Hamburger menu** in the top status bar — toggle Music / Sound.
 
-**Win:** keep **INFECTION** below 100% until **CONTAINMENT** fills on its own — it ticks up from live play time only (compounding rate, ~2 minutes if nothing stops the clock). **Lose:** infection hits 100% first (battery drains, screen goes black, Logos emails Sam).
+**Win:** keep **INFECTION** below 100% until **CONTAINMENT** fills on its own — it ticks up from live play time only (compounding rate, ~2 minutes if nothing stops the clock).
+
+**Lose:** infection hits 100% first (battery drains, screen goes black, Logos emails Sam).
 
 ## Build
 
